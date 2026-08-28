@@ -60,6 +60,33 @@ else
   echo "  [aviso] curl no disponible: se omiten las comprobaciones del proxy"
 fi
 
+echo "== certificado TLS =="
+if command -v docker >/dev/null 2>&1; then
+  info_cert=$(docker exec milern-proxy openssl x509 -in /etc/nginx/certs/fullchain.pem \
+                -noout -issuer -enddate 2>/dev/null || true)
+  if [ -n "$info_cert" ]; then
+    echo "$info_cert" | sed 's/^/  /'
+    # Un autofirmado se reconoce porque emisor y sujeto coinciden.
+    emisor=$(docker exec milern-proxy openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -issuer 2>/dev/null)
+    sujeto=$(docker exec milern-proxy openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -subject 2>/dev/null)
+    if [ "${emisor#issuer=}" = "${sujeto#subject=}" ]; then
+      echo "  [aviso] es un certificado AUTOFIRMADO: Telegram rechazara el webhook."
+      echo "          Instala uno real antes de exponer el sistema (guia_despligue.md, seccion 4)."
+    else
+      echo "  [ok]    certificado emitido por una autoridad externa"
+    fi
+  fi
+fi
+
+echo "== proxy de entrada =="
+if [ "${CONFIAR_EN_CLOUDFLARE:-false}" = "true" ]; then
+  comprobar "rangos de Cloudflare cargados en nginx" \
+    docker exec milern-proxy test -f /etc/nginx/conf.d/00-cloudflare.conf
+  echo "  [info]  CONFIAR_EN_CLOUDFLARE=true: la IP real se toma de CF-Connecting-IP"
+else
+  echo "  [info]  CONFIAR_EN_CLOUDFLARE=false: nginx usa la IP de conexion directa"
+fi
+
 echo
 if [ "$fallos" -eq 0 ]; then
   echo "verificacion completa: sin fallos"

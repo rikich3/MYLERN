@@ -19,8 +19,8 @@ migraciones, importación de workflows, ciclo de esfuerzos y cierre TLS.
 | Docker Engine | 24+ | con el plugin `docker compose` v2 |
 | RAM | 2 GB | 4 GB recomendado (n8n es el más pesado) |
 | Disco | 10 GB | crece con el histórico de esfuerzos y ejecuciones |
-| Puertos | 80, 443 | libres en el host y abiertos en el firewall |
-| DNS | registro A | apuntando al host, necesario para el certificado |
+| Puertos | 80, 443 | libres y abiertos en el firewall. Con Cloudflare Tunnel no hace falta abrir ninguno (ver 4.3) |
+| DNS | registro A | apuntando al host. Con Cloudflare, con la nube naranja activada |
 
 Además: un **bot de Telegram** creado con [@BotFather](https://t.me/BotFather) y
 su token.
@@ -79,6 +79,8 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 | `N8N_PASSWORD` | acceso básico al editor de n8n |
 | `N8N_ENCRYPTION_KEY` | cifra las credenciales guardadas por n8n |
 | `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | cuenta inicial creada al arrancar |
+| `CONFIAR_EN_CLOUDFLARE` | `true` **solo** si Cloudflare está delante (ver 4.3). No lleva secreto |
+| `CERTBOT_EMAIL` | avisos de caducidad de Let's Encrypt. Se deja vacío si usas Cloudflare |
 
 > `N8N_ENCRYPTION_KEY` no se puede cambiar después sin invalidar las
 > credenciales ya guardadas. Respáldala junto con el resto de secretos.
@@ -91,38 +93,282 @@ chmod 600 .env    # contiene secretos en claro
 
 ## 4. Certificado TLS
 
-El proxy busca `deploy/nginx/certs/fullchain.pem` y `privkey.pem`. **Si no los
-encuentra, genera un autofirmado** y arranca igualmente: útil para probar, no
-para producción.
+### 4.1 Qué es y por qué el proxy lo necesita
 
-### Producción — Let's Encrypt
+Un **certificado TLS** hace dos cosas a la vez:
 
-Con los puertos 80/443 libres y el DNS ya apuntando al host:
+1. **Cifra** el tráfico entre el navegador y el servidor. Sin él, todo viaja en
+   texto plano y cualquiera en el camino —el wifi de un café, el proveedor de
+   internet, un router intermedio— puede leerlo. En MILERN eso significaría
+   exponer la contraseña del ingreso, el token de sesión, los API Token de la
+   CLI y el contenido completo de todos los nodos.
+2. **Acredita la identidad** del servidor. El certificado lo firma una autoridad
+   en la que el navegador ya confía, de modo que el cliente puede comprobar que
+   habla con tu dominio y no con alguien que se ha colado en medio. Sin esa
+   firma, el cifrado protegería una conversación con un desconocido.
+
+El **contenedor 05** es quien lo necesita porque es el único que recibe tráfico
+de fuera. Es el punto donde termina el TLS (*TLS termination*): descifra lo que
+llega, decide a dónde va —SPA, `/api`, `/webhook`— y lo reenvía en texto plano
+por la red interna de Docker, que no sale de la máquina. Los contenedores 01–04
+no publican puertos y por eso no necesitan certificado propio.
+
+Hay además dos motivos que no son opcionales en este sistema:
+
+- **Telegram exige HTTPS con certificado válido** para entregar webhooks. Con un
+  autofirmado, `setWebhook` falla y el bot deja de recibir mensajes.
+- Los navegadores tratan el HTTP plano como inseguro y bloquean parte de la API
+  web moderna.
+
+> El proxy genera un certificado **autofirmado** si no encuentra otro, solo para
+> poder arrancar. Sirve para probar en local, pero el navegador mostrará aviso y
+> Telegram lo rechazará. Hay que sustituirlo antes de exponer el sistema.
+
+### 4.2 Qué camino te toca
+
+La respuesta depende de si hay algo delante de tu servidor:
+
+| Tu situación | Qué usar | ¿Renovación? |
+|---|---|---|
+| **Cloudflare delante** (nube naranja) | **Cloudflare Origin Certificate** | **No**: dura 15 años |
+| Servidor expuesto directo a internet | Let's Encrypt vía `scripts/certificado.sh` | Sí, cada 90 días |
+| Solo pruebas en local | El autofirmado que se genera solo | No aplica |
+
+**Si usas Oracle Cloud + Cloudflare, te toca la primera fila: la 4.3.** No
+necesitas Let's Encrypt, ni certbot, ni cron de renovación.
+
+### 4.3 Con Cloudflare (Oracle Cloud + Cloudflare)
+
+Cuando activas la nube naranja en Cloudflare, el tráfico deja de ir directo a tu
+servidor y pasa a hacer dos saltos:
+
+```
+Navegador  ──HTTPS──>  Cloudflare  ──HTTPS──>  tu servidor (proxy MILERN)
+           certificado              certificado
+           de Cloudflare            de origen
+           (automático)             (el que instalas tú)
+```
+
+El primer salto ya está resuelto: Cloudflare pone su propio certificado, válido
+y renovado por ellos. Lo que sigue haciendo falta es el **segundo salto**, y
+aquí está la razón por la que no puedes saltártelo:
+
+Cloudflare ofrece un modo llamado **Flexible** que deja ese segundo tramo en HTTP
+plano. El candado aparece en el navegador, pero el trayecto entre Cloudflare y tu
+máquina en Oracle Cloud cruza internet **sin cifrar**. Es el peor escenario:
+parece seguro y no lo es. **No uses Flexible.**
+
+#### Paso 1 — Emitir el Origin Certificate
+
+Es gratuito, lo emite Cloudflare y **dura 15 años**, así que no hay renovación
+que programar.
+
+1. Panel de Cloudflare → tu dominio → **SSL/TLS** → **Origin Server**.
+2. **Create Certificate**. Deja *Let Cloudflare generate a private key and CSR*.
+3. En *Hostnames* añade tu dominio y el comodín: `milern.midominio.com` y
+   `*.midominio.com`.
+4. Validez: **15 años**. Formato: **PEM**.
+5. Te muestra dos bloques **una sola vez**. Cópialos a tu servidor:
+
+```bash
+cd milern/deploy
+nano nginx/certs/fullchain.pem   # pega "Origin Certificate"
+nano nginx/certs/privkey.pem     # pega "Private Key"
+chmod 644 nginx/certs/fullchain.pem
+chmod 600 nginx/certs/privkey.pem
+```
+
+#### Paso 2 — Modo de cifrado Full (strict)
+
+En **SSL/TLS → Overview**, elige **Full (strict)**.
+
+| Modo | Segundo salto | Veredicto |
+|---|---|---|
+| Off | sin cifrar | no |
+| Flexible | **sin cifrar** | no, aunque el navegador muestre candado |
+| Full | cifrado, sin validar | acepta un impostor en el segundo salto |
+| **Full (strict)** | cifrado y validado | **este** |
+
+El Origin Certificate solo lo reconoce Cloudflare, no los navegadores. Eso es
+exactamente lo que se quiere: el visitante ve el certificado de Cloudflare y
+Cloudflare valida el tuyo. Si entras por la IP del servidor saltándote
+Cloudflare, verás un aviso de certificado: es lo esperado.
+
+#### Paso 3 — Decirle al proxy que está detrás de Cloudflare
+
+En `deploy/.env`:
+
+```bash
+CONFIAR_EN_CLOUDFLARE=true
+```
+
+**Esto no es cosmético.** Detrás de Cloudflare, todas las peticiones llegan al
+proxy con IP *de Cloudflare*. Sin esta opción, el limitador de caudal metería a
+todos los visitantes del mundo en el mismo cubo —un solo usuario abusivo
+bloquearía a los demás— y los registros solo mostrarían IPs de Cloudflare.
+
+Con la opción activada, nginx recupera la IP real desde la cabecera
+`CF-Connecting-IP`, y solo la acepta si la petición viene de un rango de IP de
+Cloudflare (`deploy/nginx/cloudflare-ips.conf`). Por eso la opción está apagada
+por defecto: confiar en esa cabecera sin un proxy conocido delante permitiría a
+cualquiera falsificar su IP y esquivar el limitador.
+
+Aplica el cambio:
+
+```bash
+docker compose --env-file .env up -d proxy
+```
+
+Comprueba que la IP real llega bien:
+
+```bash
+docker compose --env-file .env logs --tail=20 proxy
+```
+
+Deben aparecer IPs de visitantes reales, no rangos `104.16.x` o `172.64.x`. Si
+siguen apareciendo IPs de Cloudflare, refresca los rangos:
+
+```bash
+bash scripts/actualizar_ips_cloudflare.sh
+docker compose --env-file .env up -d --build proxy
+```
+
+#### Paso 4 — Ajustes de Cloudflare para este sistema
+
+- **DNS**: registro `A` hacia la IP pública de tu instancia, con la **nube
+  naranja activada** (proxied).
+- **SSL/TLS → Edge Certificates → Always Use HTTPS**: activado.
+- **Telegram**: funciona sin más. El bot habla con Cloudflare, que presenta un
+  certificado válido. Recuerda que Telegram solo entrega webhooks en los puertos
+  443, 80, 88 y 8443; el 443 de Cloudflare cumple.
+- **Ojo con las reglas de caché**: no caches `/api/`. Cloudflare no cachea
+  respuestas de API por defecto, pero si has creado alguna *Page Rule* de
+  "Cache Everything", exclúyelo explícitamente.
+
+#### Alternativa: Cloudflare Tunnel
+
+Si prefieres **no abrir ningún puerto** en Oracle Cloud —muy razonable, y evita
+por completo el problema de que alguien descubra tu IP de origen—, usa
+`cloudflared`. El túnel sale desde tu servidor hacia Cloudflare, así que no hace
+falta ingreso ninguno ni certificado de origen: el propio túnel va cifrado.
+
+Apunta el túnel a `http://localhost:80` y mantén `CONFIAR_EN_CLOUDFLARE=true`.
+En ese caso puedes cerrar 80 y 443 en la lista de seguridad de la VCN.
+
+### 4.4 Sin Cloudflare: Let's Encrypt y su renovación
+
+Solo si tu servidor está expuesto directamente a internet. Requiere que el
+**puerto 80 sea alcanzable desde fuera**: es por donde Let's Encrypt comprueba
+que el dominio es tuyo (reto ACME HTTP-01).
+
+#### Emisión
+
+El sistema tiene que estar levantado: nginx sirve el reto desde
+`/.well-known/acme-challenge/` mientras sigue atendiendo el resto.
 
 ```bash
 cd deploy
-docker run --rm -p 80:80 \
-  -v "$PWD/nginx/certs:/etc/letsencrypt/live-out" \
-  -v milern_certbot:/etc/letsencrypt \
-  certbot/certbot certonly --standalone \
-  -d "$(grep '^DOMINIO=' .env | cut -d= -f2)" \
-  --agree-tos --register-unsafely-without-email
-
-# copiar el material emitido al directorio que monta el proxy
-DOM=$(grep '^DOMINIO=' .env | cut -d= -f2)
-docker run --rm -v milern_certbot:/etc/letsencrypt -v "$PWD/nginx/certs:/salida" alpine \
-  sh -c "cp /etc/letsencrypt/live/$DOM/fullchain.pem /salida/ && \
-         cp /etc/letsencrypt/live/$DOM/privkey.pem   /salida/"
+docker compose --env-file .env up -d
+bash scripts/certificado.sh emitir
 ```
 
-**Renovación.** Los certificados de Let's Encrypt duran 90 días. Programa la
-renovación en el cron del host:
+El script comprueba primero que el reto sea alcanzable y, si no lo es, dice qué
+mirar en vez de dejarte un error opaco de certbot. Después pide el certificado,
+lo copia a `nginx/certs/` y recarga nginx **sin cortar conexiones**.
+
+#### Renovación con el cron del host
+
+Los certificados de Let's Encrypt duran **90 días**. `certbot renew` solo actúa
+cuando quedan menos de 30, así que puedes ejecutarlo a diario o semanalmente sin
+riesgo: si no toca renovar, no hace nada.
+
+Edita el cron del usuario que administra el despliegue:
+
+```bash
+crontab -e
+```
+
+Y añade (ajusta la ruta):
 
 ```cron
-0 3 1 * * cd /ruta/a/milern/deploy && docker compose restart proxy
+# Renovación del certificado TLS de MILERN — lunes a las 03:17
+17 3 * * 1 cd /home/ubuntu/milern/deploy && /bin/bash scripts/certificado.sh renovar >> /var/log/milern-certificado.log 2>&1
 ```
 
-(precedido del `certbot renew` correspondiente a tu método de emisión).
+Sobre esa línea:
+
+| Parte | Por qué |
+|---|---|
+| `17 3 * * 1` | lunes a las 03:17. Let's Encrypt **pide** no usar horas en punto: reparte la carga de sus servidores |
+| `cd .../deploy` | el script busca `.env` y `docker-compose.yml` en su directorio |
+| `/bin/bash` | cron usa `/bin/sh`, y el script necesita bash |
+| `>> ... 2>&1` | sin esto, cron intenta enviarte un correo y el fallo pasa desapercibido |
+
+El script es **idempotente**: compara el certificado antes y después, y solo
+publica y recarga nginx si de verdad cambió.
+
+Comprueba que el cron funciona sin esperar 90 días:
+
+```bash
+cd deploy
+bash scripts/certificado.sh renovar     # debe decir "sin cambios"
+bash scripts/certificado.sh estado      # fecha de caducidad
+tail /var/log/milern-certificado.log
+```
+
+Y programa un aviso propio por si la renovación falla en silencio:
+
+```cron
+0 9 * * 1 cd /home/ubuntu/milern/deploy && /bin/bash scripts/certificado.sh estado | mail -s "MILERN: estado del certificado" tu@correo
+```
+
+### 4.5 Oracle Cloud: el firewall doble
+
+En Oracle Cloud **no basta con abrir el puerto en la consola**. Hay dos
+cortafuegos y la mayoría de despliegues fallidos se explican por olvidar el
+segundo:
+
+**1. Red virtual (consola de OCI).** Networking → *Virtual Cloud Networks* → tu
+VCN → *Security Lists* (o *Network Security Groups*). Añade reglas de ingreso:
+
+| Origen | Protocolo | Puerto |
+|---|---|---|
+| `0.0.0.0/0` | TCP | 443 |
+| `0.0.0.0/0` | TCP | 80 |
+
+Con Cloudflare puedes restringir el origen a los rangos de
+`deploy/nginx/cloudflare-ips.conf` en lugar de `0.0.0.0/0`: así nadie llega a tu
+origen saltándose Cloudflare. Con Cloudflare Tunnel no necesitas ninguna regla.
+
+**2. Cortafuegos de la propia instancia.** Las imágenes de OCI llegan con reglas
+restrictivas ya puestas:
+
+```bash
+# Ubuntu
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80  -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save        # sin esto se pierde al reiniciar
+
+# Oracle Linux
+sudo firewall-cmd --permanent --add-port=80/tcp
+sudo firewall-cmd --permanent --add-port=443/tcp
+sudo firewall-cmd --reload
+```
+
+Verifica desde **fuera** de la máquina:
+
+```bash
+curl -I http://TU-DOMINIO/
+```
+
+Si desde el servidor responde pero desde fuera no, el que falta es uno de estos
+dos cortafuegos.
+
+> **Nota de capacidad.** El *Always Free* de Oracle Cloud da 1 GB de RAM en las
+> instancias AMD (VM.Standard.E2.1.Micro), y n8n con PostgreSQL se queda corto
+> ahí. Las instancias ARM (VM.Standard.A1.Flex) permiten hasta 24 GB gratis: si
+> puedes elegir, usa ARM. Todas las imágenes del `docker-compose.yml` tienen
+> variante `arm64`.
 
 ---
 
@@ -132,6 +378,10 @@ renovación en el cron del host:
 cd deploy
 docker compose --env-file .env up -d --build
 ```
+
+Si aún no has instalado el certificado de la sección 4, el proxy arranca con uno
+autofirmado: el sistema funciona para probar, pero el navegador avisará y
+Telegram rechazará el webhook.
 
 La primera construcción tarda varios minutos. El orden de arranque está resuelto
 por *healthchecks*: `postgres` debe estar sano antes de que arranquen `backend`
@@ -382,6 +632,12 @@ eval [--id <uuid>]       evaluaciones semanales
 | El grafo no genera esfuerzos | no tiene nodos hoja | `generar_esfuerzo` devuelve `null` con `nodos_hojas` vacío |
 | Evaluación vacía el domingo | ningún nodo en fase 3 o 4 | esperado en instalaciones nuevas |
 | `403` en `/api/v1/internal/*` | comportamiento correcto | esa superficie es solo para n8n, por red interna |
+| `521`/`522` de Cloudflare | Cloudflare no alcanza tu origen | revisa los **dos** cortafuegos de Oracle Cloud (4.5) y que el proxy esté en pie |
+| `526` de Cloudflare | modo Full (strict) sin Origin Certificate válido | instala el Origin Certificate (4.3) o revisa que copiaste los dos bloques completos |
+| Los registros solo muestran IPs `104.16.x` / `172.64.x` | falta `CONFIAR_EN_CLOUDFLARE=true` | actívalo; si persiste, `bash scripts/actualizar_ips_cloudflare.sh` |
+| El limitador bloquea a usuarios legítimos | todos comparten cubo por la IP de Cloudflare | mismo arreglo que la fila anterior |
+| `certificado.sh emitir` dice que el reto no es alcanzable | puerto 80 cerrado o DNS sin propagar | con Cloudflare no uses este script: te toca la 4.3 |
+| Responde desde el servidor pero no desde fuera | cortafuegos de la instancia | `iptables` / `firewalld` en la propia VM (4.5) |
 
 ### Consultas útiles
 
@@ -415,8 +671,11 @@ Antes de exponer el sistema a Internet:
 - [ ] Todos los valores `CAMBIAR` de `.env` sustituidos por secretos generados
 - [ ] `chmod 600 deploy/.env`
 - [ ] `.env` **no** versionado (ya está en `.gitignore`)
-- [ ] Certificado TLS real, no el autofirmado
-- [ ] Solo 80 y 443 abiertos en el firewall del host
+- [ ] Certificado TLS real, no el autofirmado (sección 4)
+- [ ] Con Cloudflare: modo **Full (strict)**, nunca *Flexible*
+- [ ] Con Cloudflare: `CONFIAR_EN_CLOUDFLARE=true`, y los registros muestran IPs reales
+- [ ] Sin Cloudflare: renovación programada en cron y **probada** con `certificado.sh renovar`
+- [ ] Solo 80 y 443 abiertos, en los **dos** cortafuegos de Oracle Cloud
 - [ ] El editor de n8n **no** publicado (acceso por túnel SSH)
 - [ ] `verificar_despliegue.sh` confirma el 403 en `/api/v1/internal/*`
 - [ ] Respaldos programados y **restauración probada al menos una vez**

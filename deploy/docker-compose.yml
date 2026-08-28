@@ -147,6 +147,10 @@ services:
     depends_on: [backend, webapp, n8n]
     environment:
       DOMINIO: ${DOMINIO}
+      # Restaura la IP real del visitante desde CF-Connecting-IP. Actívalo SOLO
+      # si el trafico entra por Cloudflare: sin proxy conocido delante, confiar
+      # en esa cabecera permitiria falsificar la IP y esquivar el limitador.
+      CONFIAR_EN_CLOUDFLARE: ${CONFIAR_EN_CLOUDFLARE:-false}
     ports:
       - "80:80"
       - "443:443"
@@ -155,6 +159,18 @@ services:
       - certbot_webroot:/var/www/certbot
     networks: [interna, externa]
     logging: *logging
+
+  # --- emision y renovacion del certificado (no es un contenedor del ASI) ----
+  # Se ejecuta de forma puntual desde scripts/certificado.sh; comparte con el
+  # proxy el webroot del reto ACME y el directorio de certificados.
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["certbot"]
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+      - ./nginx/certs:/salida
+    networks: [externa]
 
   # --- herramienta puntual (no es un contenedor del ASI) ---------------------
   cli:
@@ -172,6 +188,7 @@ volumes:
   datos_postgres:
   datos_n8n:
   certbot_webroot:
+  certbot_conf:
 
 networks:
   # Red sin salida a Internet donde viven backend, n8n y Postgres.
