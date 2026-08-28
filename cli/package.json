@@ -1,0 +1,19 @@
+{
+  "name": "mylern-cli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cliente de linea de comandos de MyLern (procedimiento \"manejando el conocimiento usando la terminal\")",
+  "type": "module",
+  "bin": { "mylern-cli": "dist/index.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

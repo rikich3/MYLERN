@@ -1,0 +1,147 @@
+{
+  "name": "MILERN 02 - Tick de espaciado (1 UE)",
+  "meta": {
+    "descripcion": "Trigger cronometrado de 1 UE (10 minutos). Dispara la generacion y agendacion de esfuerzos de nodos y grafos: archiva nodos vencidos, encola candidatos y avanza el Round Robin de cada grafo.",
+    "especificaciones": [
+      "LOG-GEN-NODO",
+      "LOG-GEN-GRAFO",
+      "PROC-RECIBIR-ESF"
+    ],
+    "etiquetas": [
+      "milern",
+      "space-repetition"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000001",
+      "name": "Cada 1 UE (10 min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -320,
+        0
+      ],
+      "notes": "paso 1 'trigger cronometrado de despacho': cada 10 minutos el motor de tareas ejecuta el tick temporal. El backend calcula indice_global = floor(unix_timestamp / 600)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/scheduler/tick",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000002",
+      "name": "Ejecutar tick",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Ejecuta en una sola transaccion: archivado de nodos con indice_fecha_limite < indice_global, encolado de nodos candidatos (activo, fase 1-3 o fase_4 temporal, indice_siguiente_esfuerzo <= indice_global) y encolado de grafos elegibles con avance del cursor Round Robin y reagendamiento entre 54 y 66 UE."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "indice_global",
+              "value": "={{ $json.indice_global }}",
+              "type": "number"
+            },
+            {
+              "id": "r2",
+              "name": "nodos_archivados",
+              "value": "={{ $json.nodos_archivados }}",
+              "type": "number"
+            },
+            {
+              "id": "r3",
+              "name": "nodos_encolados",
+              "value": "={{ $json.nodos_encolados }}",
+              "type": "number"
+            },
+            {
+              "id": "r4",
+              "name": "grafos_encolados",
+              "value": "={{ $json.grafos_encolados }}",
+              "type": "number"
+            },
+            {
+              "id": "r5",
+              "name": "resumen",
+              "value": "=UE {{ $json.indice_global }}: {{ $json.nodos_encolados }} nodos + {{ $json.grafos_encolados }} grafos encolados, {{ $json.nodos_archivados }} archivados",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a2000000-0000-4000-8000-000000000003",
+      "name": "Resumen del tick",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        160,
+        0
+      ],
+      "notes": "Deja trazabilidad del tick en el historial de ejecuciones de n8n."
+    }
+  ],
+  "connections": {
+    "Cada 1 UE (10 min)": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar tick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecutar tick": {
+      "main": [
+        [
+          {
+            "node": "Resumen del tick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false,
+  "pinData": {}
+}

@@ -1,0 +1,182 @@
+# =============================================================================
+# MILERN / MYLERN -- lista de contenedores del ASI
+#   contenedor 01  backend      servidor backend & api mylern
+#   contenedor 02  n8n          workflow n8n mylern
+#   contenedor 03  postgres     base de datos postgres mylern
+#   contenedor 04  webapp       web app mylern
+#   contenedor 05  proxy        reverse proxy tls
+#
+# Uso:  docker compose --env-file .env up -d --build
+# El contexto de build es la raiz del repositorio (..), por eso este archivo se
+# invoca desde deploy/ y las rutas COPY llevan el prefijo del subproyecto.
+# =============================================================================
+
+name: milern
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  # --- contenedor 03 ---------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: milern-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+      POSTGRES_DB: ${PGDATABASE}
+      # El indice global y el cron dominical se calculan en UTC.
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - datos_postgres:/var/lib/postgresql/data
+      # Se ejecutan en orden lexicografico en el primer arranque del volumen.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER} -d ${PGDATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [interna]
+    logging: *logging
+
+  # --- contenedor 01 ---------------------------------------------------------
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend/Dockerfile
+    image: milern/backend:1.0.0
+    container_name: milern-backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      TZ: UTC
+      PORT: "3000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${PGPASSWORD}
+      PGDATABASE: ${PGDATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL: ${JWT_TTL:-12h}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      CORS_ORIGEN: ${CORS_ORIGEN:-https://${DOMINIO}}
+      DESPACHO_MAX_POR_VENTANA: ${DESPACHO_MAX_POR_VENTANA:-10}
+      DESPACHO_ESPACIADO_SEG: ${DESPACHO_ESPACIADO_SEG:-60}
+      DESPACHO_MAX_INTENTOS: ${DESPACHO_MAX_INTENTOS:-3}
+      EVALUACION_MAX_ITEMS: ${EVALUACION_MAX_ITEMS:-20}
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      BOOTSTRAP_TELEGRAM_CHAT_ID: ${BOOTSTRAP_TELEGRAM_CHAT_ID:-}
+    networks: [interna]
+    logging: *logging
+    # Sin `ports`: solo se alcanza a traves del reverse proxy (contenedor 05).
+
+  # --- contenedor 02 ---------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:1.70.1
+    container_name: milern-n8n
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      backend:  { condition: service_started }
+    environment:
+      # El cron dominical debe dispararse a las 00:00 UTC exactas.
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+      N8N_HOST: ${DOMINIO}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${DOMINIO}/
+      N8N_EDITOR_BASE_URL: https://${DOMINIO}/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD}
+      # Los workflows leen MILERN_API_BASE y MILERN_INTERNAL_SECRET via $env.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      MILERN_API_BASE: http://backend:3000
+      MILERN_INTERNAL_SECRET: ${INTERNAL_API_SECRET}
+      # Persistencia de n8n en la misma instancia de Postgres, base separada.
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: ${PGDATABASE}
+      DB_POSTGRESDB_SCHEMA: n8n
+      DB_POSTGRESDB_USER: ${PGUSER}
+      DB_POSTGRESDB_PASSWORD: ${PGPASSWORD}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"
+    volumes:
+      - datos_n8n:/home/node/.n8n
+      # Definiciones versionadas de los workflows, para importarlas.
+      - ../space_repetition:/workflows:ro
+    networks: [interna]
+    logging: *logging
+
+  # --- contenedor 04 ---------------------------------------------------------
+  webapp:
+    build:
+      context: ..
+      dockerfile: deploy/webapp/Dockerfile
+      args:
+        # Rutas relativas: el proxy sirve SPA y API bajo el mismo origen.
+        VITE_API_BASE: ""
+    image: milern/webapp:1.0.0
+    container_name: milern-webapp
+    restart: unless-stopped
+    networks: [interna]
+    logging: *logging
+
+  # --- contenedor 05 ---------------------------------------------------------
+  proxy:
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    image: milern/proxy:1.0.0
+    container_name: milern-proxy
+    restart: unless-stopped
+    depends_on: [backend, webapp, n8n]
+    environment:
+      DOMINIO: ${DOMINIO}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/certs:/etc/nginx/certs
+      - certbot_webroot:/var/www/certbot
+    networks: [interna, externa]
+    logging: *logging
+
+  # --- herramienta puntual (no es un contenedor del ASI) ---------------------
+  cli:
+    build:
+      context: ..
+      dockerfile: deploy/cli/Dockerfile
+    image: milern/cli:1.0.0
+    profiles: ["herramientas"]
+    environment:
+      MYLERN_URL: http://backend:3000
+      MYLERN_TOKEN: ${MYLERN_CLI_TOKEN:-}
+    networks: [interna]
+
+volumes:
+  datos_postgres:
+  datos_n8n:
+  certbot_webroot:
+
+networks:
+  # Red sin salida a Internet donde viven backend, n8n y Postgres.
+  interna:
+    driver: bridge
+    internal: false
+  externa:
+    driver: bridge

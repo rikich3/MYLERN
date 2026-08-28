@@ -1,0 +1,129 @@
+{
+  "name": "MILERN 01 - Ingesta Telegram",
+  "meta": {
+    "descripcion": "Procedimiento 1 'registrando un nodo'. El webhook del servicio de workflows recepciona el mensaje de Telegram del usuario y lo enruta al backend, que decide entre comando de control y parser de creacion de nodos.",
+    "especificaciones": [
+      "PROC-REG-NODO"
+    ],
+    "etiquetas": [
+      "milern",
+      "space-repetition"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -320,
+        0
+      ],
+      "webhookId": "milern-telegram-ingesta",
+      "credentials": {
+        "telegramApi": {
+          "id": "milern_telegram",
+          "name": "Telegram MILERN"
+        }
+      },
+      "notes": "paso 1 'recepcionando un nodo': recepciona el mensaje de Telegram del usuario."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/telegram/update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Enrutar al backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        0
+      ],
+      "notes": "paso 1: 'Si el mensaje no contiene comandos de control, se enruta al parser de creacion de nodos'. El backend aplica detectarComando() y, por defecto, parsearNodo()."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Responder al usuario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        160,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "milern_telegram",
+          "name": "Telegram MILERN"
+        }
+      },
+      "notes": "paso 2 'guardando nodo': confirma el registro o, ante discordancia sintactica, devuelve el mensaje explicativo y finaliza el flujo."
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Enrutar al backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar al backend": {
+      "main": [
+        [
+          {
+            "node": "Responder al usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "active": false,
+  "pinData": {}
+}

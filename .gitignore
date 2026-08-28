@@ -1,0 +1,28 @@
+# dependencias y compilados
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# secretos y entorno  -- NUNCA versionar
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+.env
+.env.local
+
+# material TLS
+deploy/nginx/certs/*
+!deploy/nginx/certs/.gitkeep
+
+# respaldos y volcados
+deploy/respaldos/
+*.sql.gz
+
+# registros y temporales
+*.log
+npm-debug.log*
+.DS_Store
+*.swp
+.idea/
+.vscode/
