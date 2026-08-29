@@ -21,8 +21,8 @@ necesitarla**, para que la decisión sea informada y reversible.
 | Emisión de API Token para la CLI | simplificada | sigue disponible en la app web |
 
 Lo que **no** se tocó, porque sin ello el sistema no funciona o queda abierto de
-par en par: el ingreso con contraseña de la app web, las credenciales de n8n, el
-cifrado de credenciales de n8n, y el aislamiento de puertos en `127.0.0.1`.
+par en par: el ingreso con contraseña de la app web, la cuenta de propietario de
+n8n, el cifrado de sus credenciales, y el aislamiento de puertos en `127.0.0.1`.
 
 ---
 
@@ -175,11 +175,27 @@ es una suposición que se rompe sola.
 > eso ni siquiera se alcanza tu servidor sin estar autenticado, y es el modo más
 > cómodo de blindar un despliegue personal. Está en `guia_despligue.md`.
 
-### Credenciales de n8n
+### La cuenta de propietario de n8n
 
-No son seguridad extra: n8n **guarda el token de tu bot de Telegram**. Quien
-entre en su interfaz puede leerlo, y con él controla el bot. Además `/webhook/`
-queda expuesto por necesidad, así que la interfaz tiene que estar protegida.
+n8n **guarda el token de tu bot de Telegram**. Quien entre en su interfaz puede
+leerlo, y con él controla el bot.
+
+**Ojo con cómo se protege.** n8n 1.x **no tiene autenticación básica**:
+`N8N_BASIC_AUTH_USER` y `N8N_BASIC_AUTH_PASSWORD` se ignoran en silencio —el
+editor responde `200 OK` sin pedir nada— y por eso se han retirado del
+`docker-compose.yml`, donde daban una falsa sensación de protección.
+
+Lo que protege la instancia es la **cuenta de propietario**, que se crea en el
+**primer acceso al editor**. Hasta que exista, cualquiera que alcance la
+interfaz puede reclamarla. Créala nada más levantar el sistema, antes de
+publicar el subdominio.
+
+```bash
+docker compose --env-file .env exec -T n8n \
+  wget -qO- http://127.0.0.1:5678/rest/settings | grep -o '"showSetupOnFirstLoad":[a-z]*'
+```
+
+`true` significa que sigue sin dueño.
 
 ### `N8N_ENCRYPTION_KEY`
 

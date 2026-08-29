@@ -77,7 +77,7 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 | `PGPASSWORD` | contraseña de PostgreSQL |
 | `JWT_SECRET` | firma de los tokens de sesión de la app web |
 | `INTERNAL_API_SECRET` | secreto compartido backend ↔ n8n |
-| `N8N_PASSWORD` | acceso básico al editor de n8n |
+| `DOMINIO_N8N` | subdominio donde sirves n8n; vacío si va bajo `DOMINIO` (ver 5.2) |
 | `N8N_ENCRYPTION_KEY` | cifra las credenciales guardadas por n8n |
 | `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | cuenta inicial creada al arrancar |
 | `ZONA_HORARIA` | **imprescindible**: define cuándo empiezan las horas de silencio (sección 4) |
@@ -269,8 +269,37 @@ Crea **un solo Proxy Host** para tu dominio, con tres localizaciones.
 | Location | Scheme | Forward Hostname | Forward Port |
 |---|---|---|---|
 | `/api/v1/` | http | `backend` | `3000` |
-| `/webhook/` | http | `n8n` | `5678` |
 | `/salud` | http | `backend` | `3000` |
+
+#### n8n: subdominio propio o ruta del principal
+
+Tienes dos opciones, y **hay que declarar cuál usas** en `.env`, porque de ahí
+sale la URL base de los webhooks:
+
+**Opción 1 — subdominio propio** (`n8n.midominio.com`). Más limpio. Crea en NPM
+un **Proxy Host aparte** apuntando a `n8n` puerto `5678`, con su propio
+certificado, y en `.env`:
+
+```bash
+DOMINIO_N8N=n8n.midominio.com
+```
+
+**Opción 2 — bajo el dominio principal.** Añade una *custom location* más
+(`/webhook/` → `n8n:5678`) y deja `DOMINIO_N8N` vacío: se usará `DOMINIO`.
+
+Si no lo declaras y sirves n8n en un subdominio, n8n anunciará los webhooks con
+el dominio equivocado y Telegram entregará los mensajes donde no hay nadie
+escuchando.
+
+> **El puerto `:5678` del log de arranque es cosmético.** n8n imprime
+> `Editor is now accessible via: https://…:5678/` combinando `N8N_HOST` y
+> `N8N_PORT` (el puerto en el que escucha *dentro* del contenedor). Las URLs que
+> de verdad usa salen de `WEBHOOK_URL` y `N8N_EDITOR_BASE_URL`, y esas no llevan
+> puerto. Puedes comprobarlo:
+> ```bash
+> docker compose --env-file .env exec -T n8n \
+>   wget -qO- http://127.0.0.1:5678/rest/settings | grep -o '"urlBaseWebhook":"[^"]*"'
+> ```
 
 **SSL:** pestaña *SSL* → *Request a new SSL Certificate*, con *Force SSL* y
 *HTTP/2* activados. NPM pide y **renueva solo** el certificado: no hay cron que
@@ -379,14 +408,31 @@ Debe informar `Successfully imported 4 workflows`.
 Los workflows entran **inactivos** y sin credenciales: el token del bot nunca se
 versiona en el repositorio.
 
-1. Abre el editor de n8n. Escucha en `127.0.0.1:5678` del VPS, así que llega
-   por un túnel SSH desde tu máquina:
+> ### Antes de nada: crea la cuenta de propietario de n8n
+>
+> **n8n 1.x no tiene autenticación básica.** `N8N_BASIC_AUTH_USER` y
+> `N8N_BASIC_AUTH_PASSWORD` se ignoran en silencio: el editor responde `200 OK`
+> sin pedir nada. Lo que protege la instancia es la **cuenta de propietario**,
+> y se crea **en el primer acceso al editor**.
+>
+> Es decir: quien abra el editor primero se queda con tu n8n — y n8n guarda el
+> token de tu bot de Telegram. Entra tú **antes** de publicar el subdominio en
+> Cloudflare, o mantenlo cerrado hasta haber creado la cuenta.
+>
+> Para comprobar si sigue pendiente:
+> ```bash
+> docker compose --env-file .env exec -T n8n \
+>   wget -qO- http://127.0.0.1:5678/rest/settings | grep -o '"showSetupOnFirstLoad":[a-z]*'
+> ```
+> `true` significa que cualquiera que llegue puede reclamarla.
+
+1. Abre el editor de n8n. Si lo sirves en un subdominio propio, entra por él. Si
+   no lo has publicado, llega por un túnel SSH desde tu máquina:
    ```bash
    ssh -L 5678:127.0.0.1:5678 usuario@tu-vps
    ```
-   Y entra en `http://localhost:5678`. No publiques el editor en NPM: guarda el
-   token de tu bot de Telegram.
-2. Entra con `N8N_USER` / `N8N_PASSWORD`.
+   Y entra en `http://localhost:5678`.
+2. Crea la cuenta de propietario (correo y contraseña) en la pantalla inicial.
 3. **Credentials → New → Telegram API**. Nómbrala exactamente
    `Telegram MILERN` y pega el token de BotFather.
 4. Abre los workflows **01**, **03** y **04** y asigna esa credencial a cada
@@ -405,12 +451,17 @@ Activa los cuatro workflows con el interruptor de la esquina superior derecha:
 
 ### 6.4 Registrar el webhook del bot
 
+Usa el dominio **de n8n**, que es quien recibe el webhook:
+
 ```bash
+# con subdominio propio (DOMINIO_N8N)
+curl -F "url=https://n8n.midominio.com/webhook/milern-telegram-ingesta" \
+     "https://api.telegram.org/botTU_TOKEN/setWebhook"
+
+# bajo el dominio principal (DOMINIO_N8N vacio)
 curl -F "url=https://TU-DOMINIO/webhook/milern-telegram-ingesta" \
      "https://api.telegram.org/botTU_TOKEN/setWebhook"
 ```
-
-Esa ruta la sirve NPM con la *custom location* `/webhook/` que creaste en 5.2.
 Si usas Cloudflare Access, **exclúyela**: Telegram no puede autenticarse.
 
 Verifica:
@@ -664,8 +715,12 @@ se apagó y cómo recuperarla.
 
 Antes de exponerlo:
 
-- [ ] `JWT_SECRET`, `PGPASSWORD`, `N8N_PASSWORD` y `N8N_ENCRYPTION_KEY` con
-      valores propios (`openssl rand -base64 36`)
+- [ ] `JWT_SECRET`, `PGPASSWORD` y `N8N_ENCRYPTION_KEY` con valores propios
+      (`openssl rand -base64 36`)
+- [ ] **Cuenta de propietario de n8n creada** antes de publicar su subdominio
+      (n8n 1.x ignora `N8N_BASIC_AUTH_*`; sin esa cuenta, el primero que entre
+      se queda con tu n8n y con el token del bot)
+- [ ] `DOMINIO_N8N` acorde a dónde sirves n8n, o vacío si va bajo `DOMINIO`
 - [ ] `chmod 600 deploy/.env`, y `.env` no versionado (ya está en `.gitignore`)
 - [ ] `ZONA_HORARIA` correcta y comprobada contra tu reloj (sección 7)
 - [ ] Los tres puertos de MILERN en `127.0.0.1`, no en `0.0.0.0`

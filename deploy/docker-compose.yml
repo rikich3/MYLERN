@@ -102,15 +102,21 @@ services:
       # El cron dominical debe dispararse a las 00:00 UTC exactas.
       GENERIC_TIMEZONE: UTC
       TZ: UTC
-      N8N_HOST: ${DOMINIO}
+      # Dominio propio de n8n. Si lo sirves en un subdominio aparte
+      # (n8n.midominio.com), definelo en DOMINIO_N8N; si no, cae al principal.
+      # De aqui salen la URL del editor y, sobre todo, la URL base de los
+      # webhooks: si esta mal, Telegram entrega los mensajes a otro sitio.
+      N8N_HOST: ${DOMINIO_N8N:-${DOMINIO}}
       N8N_PORT: "5678"
       N8N_PROTOCOL: https
-      WEBHOOK_URL: https://${DOMINIO}/
-      N8N_EDITOR_BASE_URL: https://${DOMINIO}/
+      WEBHOOK_URL: https://${DOMINIO_N8N:-${DOMINIO}}/
+      N8N_EDITOR_BASE_URL: https://${DOMINIO_N8N:-${DOMINIO}}/
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_USER}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD}
+      # n8n 1.x NO tiene autenticacion basica: N8N_BASIC_AUTH_* se ignora en
+      # silencio. La proteccion es la cuenta de propietario, que se crea en el
+      # PRIMER acceso al editor. Quien entre primero se queda con la instancia,
+      # y n8n guarda el token del bot de Telegram: crea esa cuenta nada mas
+      # levantar el sistema, antes de publicar el subdominio.
       # Los workflows leen MILERN_API_BASE y MILERN_INTERNAL_SECRET via $env.
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       MILERN_API_BASE: http://backend:3000
