@@ -84,7 +84,9 @@ services:
     networks: [interna, entrada]
     logging: *logging
     # Publicado para que un proxy externo (Nginx Proxy Manager) pueda enrutar.
-    # Con el contenedor 05 propio, deja PUERTO_API vacio y no se publica nada.
+    # El formato es "ip:puerto". Dejar la variable vacia NO desactiva la
+    # publicacion: cae al valor por defecto de abajo. Para no publicar nada
+    # (caso del contenedor 05 propio) usa docker-compose.proxy-propio.yml.
     ports:
       - "${PUERTO_API:-127.0.0.1:3000}:3000"
 

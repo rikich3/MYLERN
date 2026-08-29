@@ -81,7 +81,7 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 | `N8N_ENCRYPTION_KEY` | cifra las credenciales guardadas por n8n |
 | `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | cuenta inicial creada al arrancar |
 | `ZONA_HORARIA` | **imprescindible**: define cuándo empiezan las horas de silencio (sección 4) |
-| `PUERTO_WEBAPP` / `PUERTO_API` / `PUERTO_N8N` | dónde escucha cada servicio para que NPM lo alcance |
+| `PUERTO_WEBAPP` / `PUERTO_API` / `PUERTO_N8N` | dónde escucha cada servicio para que NPM lo alcance. Formato `ip:puerto` (ver 5.1) |
 
 > `N8N_ENCRYPTION_KEY` no se puede cambiar después sin invalidar las
 > credenciales ya guardadas. Respáldala junto con el resto de secretos.
@@ -183,6 +183,22 @@ Los servicios publican sus puertos **solo en `127.0.0.1`**:
 Si alguno choca con algo que ya corre en tu VPS, cámbialo en `.env`
 (`PUERTO_WEBAPP`, `PUERTO_API`, `PUERTO_N8N`). El 8080 es el que más suele estar
 ocupado.
+
+**El formato es `ip:puerto`, no solo el número.** Es importante:
+
+| Valor en `.env` | Resultado | |
+|---|---|---|
+| `127.0.0.1:3000` | solo accesible desde la propia máquina | correcto |
+| *(vacío o la línea borrada)* | igual que el anterior: se usa el valor por defecto | correcto |
+| `3000` | equivale a `0.0.0.0:3000`: **accesible desde toda la red** | evítalo |
+
+Dejar la variable vacía **no** desactiva la publicación: la sintaxis
+`${VAR:-defecto}` de Compose trata el vacío como ausente y aplica el valor por
+defecto. Para no publicar nada —solo tiene sentido con el proxy propio— existe
+`docker-compose.proxy-propio.yml` (sección 5.3).
+
+`verificar_despliegue.sh` avisa si algún puerto ha quedado más allá de
+`127.0.0.1`.
 
 Hay dos formas de que NPM llegue hasta aquí:
 
@@ -297,8 +313,13 @@ sudo firewall-cmd --reload
 El contenedor 05 sigue en el repositorio. Para usarlo en lugar de NPM:
 
 ```bash
-docker compose --env-file .env --profile proxy-propio up -d --build
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.proxy-propio.yml \
+  --profile proxy-propio up -d --build
 ```
+
+La superposición retira la publicación de puertos al host: con el proxy propio,
+backend, webapp y n8n solo deben alcanzarse por la red interna de Docker.
 
 En ese caso vuelven a aplicar la gestión de certificados
 (`scripts/certificado.sh emitir` y su renovación en cron) y

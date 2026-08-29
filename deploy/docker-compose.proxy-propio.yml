@@ -1,0 +1,22 @@
+# ============================================================================
+# Superposicion para usar el contenedor 05 del ASI en lugar de un proxy externo.
+#
+#   docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.proxy-propio.yml \
+#     --profile proxy-propio up -d --build
+#
+# Retira la publicacion de puertos al host: con el proxy propio, backend, webapp
+# y n8n solo deben alcanzarse por la red interna de Docker.
+#
+# Nota: dejar PUERTO_API / PUERTO_WEBAPP / PUERTO_N8N vacios en el .env NO sirve
+# para esto. La sintaxis ${VAR:-defecto} trata el valor vacio como ausente, asi
+# que los puertos se publicarian igualmente en 127.0.0.1.
+# ============================================================================
+
+services:
+  backend:
+    ports: !reset []
+  webapp:
+    ports: !reset []
+  n8n:
+    ports: !reset []
