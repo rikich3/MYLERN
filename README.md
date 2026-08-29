@@ -128,22 +128,53 @@ cd cli && npm install && npm run build
 
 ### Pruebas
 
-| Suite | Qué cubre | Requiere base |
+Hay dos clases de pruebas, según si necesitan una **base de datos PostgreSQL en
+marcha** para poder ejecutarse:
+
+| Suite | Qué cubre | ¿PostgreSQL? |
 |---|---|---|
 | `backend/test/dominio.test.ts` | 23 pruebas: `generar_esfuerzo`, umbrales de etapa, aciclicidad, parser, tiempo global | no |
 | `backend/test/silencio.test.ts` | 13 pruebas: fronteras de la ventana, hora local, desplazamiento de 54 UE | no |
-| `backend/test/integracion.test.ts` | 13 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, evaluación, `undo`, caudal | sí |
-| `backend/test/silencio-tick.test.ts` | 5 pruebas: compuertas del tick y del worker durante el silencio | sí |
+| `backend/test/integracion.test.ts` | 13 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, evaluación, `undo`, caudal | **sí** |
+| `backend/test/silencio-tick.test.ts` | 5 pruebas: compuertas del tick y del worker durante el silencio | **sí** |
+
+**Las que no la necesitan** ejercitan funciones puras: entra un valor, sale otro.
+Corren en milisegundos, sin configuración, en cualquier máquina. Cubren la
+aritmética del sistema —los umbrales de etapa, el `index % len` del Round Robin,
+el desplazamiento de 54 UE, el parser de mensajes—, que es donde vive la mayor
+parte de la lógica del ASI.
+
+**Las que sí la necesitan** insertan filas de verdad, ejecutan el tick contra la
+base y vuelven a leer el resultado. Son las únicas que pueden comprobar lo que
+vive *dentro* de PostgreSQL y no se puede simular: los `CHECK` del par atómico,
+el trigger que mantiene `is_leaf`, el trigger de aciclicidad con `WITH
+RECURSIVE`, el `FOR UPDATE SKIP LOCKED` de la cola y los índices únicos que
+hacen idempotente el tick. Sin una base viva fallan al conectar.
+
+Para levantar una desechable:
+
+```bash
+docker run -d --rm --name milern-test-pg \
+  -e POSTGRES_USER=mylern -e POSTGRES_PASSWORD=test -e POSTGRES_DB=mylern -e TZ=UTC \
+  -v "$PWD/deploy/postgres/init:/docker-entrypoint-initdb.d:ro" \
+  -p 55432:5432 postgres:16-alpine
+```
+
+Al montar `deploy/postgres/init/` como scripts de arranque, la propia base se
+crea con el esquema real del proyecto: ejecutar estas pruebas valida también las
+migraciones.
 
 ```bash
 cd backend
 
-# dominio: no necesita base
+# funciones puras: sin base, sin variables de entorno
 npm test
 
-# con base de datos
-PGHOST=127.0.0.1 PGPORT=5432 PGUSER=mylern PGPASSWORD=... PGDATABASE=mylern \
+# contra la base desechable de arriba
+PGHOST=127.0.0.1 PGPORT=55432 PGUSER=mylern PGPASSWORD=test PGDATABASE=mylern \
   JWT_SECRET=x ZONA_HORARIA=America/Lima npm run test:db
+
+docker rm -f milern-test-pg    # al terminar
 ```
 
 > `test:db` pasa `--test-concurrency=1` a propósito. `node --test` ejecuta los
