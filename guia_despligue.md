@@ -81,6 +81,7 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 | `N8N_ENCRYPTION_KEY` | cifra las credenciales guardadas por n8n |
 | `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | cuenta inicial creada al arrancar |
 | `ZONA_HORARIA` | **imprescindible**: define cuándo empiezan las horas de silencio (sección 4) |
+| `CORS_ORIGEN` | el origen desde el que abres la app en el navegador; puedes borrarla y se deriva de `DOMINIO` |
 | `PUERTO_WEBAPP` / `PUERTO_API` / `PUERTO_N8N` | dónde escucha cada servicio para que NPM lo alcance. Formato `ip:puerto` (ver 5.1) |
 
 > `N8N_ENCRYPTION_KEY` no se puede cambiar después sin invalidar las
@@ -89,6 +90,37 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 ```bash
 chmod 600 .env    # contiene secretos en claro
 ```
+
+### Sobre `CORS_ORIGEN`
+
+Es el origen **exacto** desde el que el navegador abre la aplicación: el mismo
+que aparece en la barra de direcciones, con esquema, **sin barra final** y sin
+ruta.
+
+```bash
+CORS_ORIGEN=https://milern.midominio.com     # correcto
+CORS_ORIGEN=https://milern.midominio.com/    # la barra final NO casa
+CORS_ORIGEN=milern.midominio.com             # falta el esquema
+```
+
+Puedes **borrar la línea**: por defecto se deriva como `https://${DOMINIO}`.
+
+Con la configuración de esta guía —la SPA y la API bajo el mismo dominio, que es
+lo que hace NPM con las *custom locations*— el navegador hace peticiones del
+**mismo origen** y CORS ni siquiera se evalúa. La variable queda como red de
+seguridad, no como algo que tengas que acertar para que funcione.
+
+Solo pasa a ser determinante si algún día separas la SPA y la API en subdominios
+distintos. En ese caso el valor es el subdominio **de la SPA** (donde está el
+navegador), no el de la API:
+
+```bash
+# SPA en https://app.midominio.com, API en https://api.midominio.com
+CORS_ORIGEN=https://app.midominio.com
+```
+
+Nada de esto afecta a la CLI, a n8n ni a Telegram: CORS es una restricción que
+aplican los navegadores, y esos clientes no envían cabecera `Origin`.
 
 > **Seguridad reducida a propósito.** Este despliegue asume un solo usuario
 > detrás de NPM y Cloudflare, así que el secreto compartido de
