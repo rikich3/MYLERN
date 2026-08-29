@@ -3,7 +3,8 @@ import * as evalRepo from '../repositories/evaluaciones.repo.js';
 import * as nodosRepo from '../repositories/nodos.repo.js';
 import * as usuariosRepo from '../repositories/usuarios.repo.js';
 import { configDeFase } from '../domain/fases.js';
-import { deltaUE, indiceGlobal, semanaISO } from '../utils/tiempo.js';
+import { agendarSiguiente } from '../domain/silencio.js';
+import { indiceGlobal, semanaISO } from '../utils/tiempo.js';
 import { env } from '../config/env.js';
 import { noEncontrado, invalido } from '../utils/errors.js';
 import type { Fase } from '../domain/tipos.js';
@@ -112,7 +113,7 @@ export async function calificar(
           fase: faseNueva,
           conteo_esfuerzo: nodo.conteo_esfuerzo,
           conteo_esfuerzo_fase: 0,
-          indice_siguiente_esfuerzo: indiceGlobal() + deltaUE(cfg.min, cfg.max),
+          indice_siguiente_esfuerzo: agendarSiguiente(indiceGlobal(), cfg.min, cfg.max),
         });
         ajuste = { nodo_id: nodo.id, fase_anterior: nodo.fase, fase_nueva: faseNueva };
       }

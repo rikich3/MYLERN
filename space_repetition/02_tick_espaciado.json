@@ -1,11 +1,12 @@
 {
   "name": "MILERN 02 - Tick de espaciado (1 UE)",
   "meta": {
-    "descripcion": "Trigger cronometrado de 1 UE (10 minutos). Dispara la generacion y agendacion de esfuerzos de nodos y grafos: archiva nodos vencidos, encola candidatos y avanza el Round Robin de cada grafo.",
+    "descripcion": "Trigger cronometrado de 1 UE (10 minutos). Dispara la generacion y agendacion de esfuerzos de nodos y grafos: archiva nodos vencidos, encola candidatos y avanza el Round Robin de cada grafo. Si el indice cae en las horas de silencio (10pm - 7am), el backend no genera ningun esfuerzo y devuelve en_silencio=true.",
     "especificaciones": [
       "LOG-GEN-NODO",
       "LOG-GEN-GRAFO",
-      "PROC-RECIBIR-ESF"
+      "PROC-RECIBIR-ESF",
+      "LOG-SILENCIO"
     ],
     "etiquetas": [
       "milern",
@@ -93,9 +94,15 @@
               "type": "number"
             },
             {
+              "id": "r4b",
+              "name": "en_silencio",
+              "value": "={{ $json.en_silencio }}",
+              "type": "boolean"
+            },
+            {
               "id": "r5",
               "name": "resumen",
-              "value": "=UE {{ $json.indice_global }}: {{ $json.nodos_encolados }} nodos + {{ $json.grafos_encolados }} grafos encolados, {{ $json.nodos_archivados }} archivados",
+              "value": "=UE {{ $json.indice_global }}: {{ $json.en_silencio ? \"HORAS DE SILENCIO, no se genera nada\" : $json.nodos_encolados + \" nodos + \" + $json.grafos_encolados + \" grafos encolados\" }}, {{ $json.nodos_archivados }} archivados",
               "type": "string"
             }
           ]
@@ -110,7 +117,7 @@
         160,
         0
       ],
-      "notes": "Deja trazabilidad del tick en el historial de ejecuciones de n8n."
+      "notes": "Deja trazabilidad del tick en el historial de ejecuciones de n8n. [feature 1.3] El backend comprueba primero si el indice cae en el rango 10pm - 7am; en ese caso solo archiva vencidos y no encola nada."
     }
   ],
   "connections": {

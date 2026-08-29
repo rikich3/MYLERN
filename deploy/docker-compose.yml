@@ -71,12 +71,22 @@ services:
       DESPACHO_ESPACIADO_SEG: ${DESPACHO_ESPACIADO_SEG:-60}
       DESPACHO_MAX_INTENTOS: ${DESPACHO_MAX_INTENTOS:-3}
       EVALUACION_MAX_ITEMS: ${EVALUACION_MAX_ITEMS:-20}
+      # [feature 1.3] horas de silencio
+      ZONA_HORARIA: ${ZONA_HORARIA:-UTC}
+      SILENCIO_ACTIVO: ${SILENCIO_ACTIVO:-true}
+      SILENCIO_HORA_INICIO: ${SILENCIO_HORA_INICIO:-22}
+      SILENCIO_HORA_FIN: ${SILENCIO_HORA_FIN:-7}
+      SILENCIO_DESPLAZAMIENTO_UE: ${SILENCIO_DESPLAZAMIENTO_UE:-54}
+      RATE_LIMIT_ACTIVO: ${RATE_LIMIT_ACTIVO:-false}
       BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
       BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
       BOOTSTRAP_TELEGRAM_CHAT_ID: ${BOOTSTRAP_TELEGRAM_CHAT_ID:-}
-    networks: [interna]
+    networks: [interna, entrada]
     logging: *logging
-    # Sin `ports`: solo se alcanza a traves del reverse proxy (contenedor 05).
+    # Publicado para que un proxy externo (Nginx Proxy Manager) pueda enrutar.
+    # Con el contenedor 05 propio, deja PUERTO_API vacio y no se publica nada.
+    ports:
+      - "${PUERTO_API:-127.0.0.1:3000}:3000"
 
   # --- contenedor 02 ---------------------------------------------------------
   n8n:
@@ -119,7 +129,9 @@ services:
       - datos_n8n:/home/node/.n8n
       # Definiciones versionadas de los workflows, para importarlas.
       - ../space_repetition:/workflows:ro
-    networks: [interna]
+    networks: [interna, entrada]
+    ports:
+      - "${PUERTO_N8N:-127.0.0.1:5678}:5678"
     logging: *logging
 
   # --- contenedor 04 ---------------------------------------------------------
@@ -133,11 +145,16 @@ services:
     image: milern/webapp:1.0.0
     container_name: milern-webapp
     restart: unless-stopped
-    networks: [interna]
+    networks: [interna, entrada]
     logging: *logging
+    ports:
+      - "${PUERTO_WEBAPP:-127.0.0.1:8080}:80"
 
   # --- contenedor 05 ---------------------------------------------------------
+  # Solo hace falta si NO usas un proxy externo. Con Nginx Proxy Manager +
+  # Cloudflare este contenedor sobra: levantalo con --profile proxy-propio.
   proxy:
+    profiles: ["proxy-propio"]
     build:
       context: ..
       dockerfile: deploy/nginx/Dockerfile
@@ -165,7 +182,7 @@ services:
   # proxy el webroot del reto ACME y el directorio de certificados.
   certbot:
     image: certbot/certbot:latest
-    profiles: ["certbot"]
+    profiles: ["proxy-propio"]
     volumes:
       - certbot_conf:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
@@ -191,9 +208,14 @@ volumes:
   certbot_conf:
 
 networks:
-  # Red sin salida a Internet donde viven backend, n8n y Postgres.
+  # Red donde se hablan backend, n8n, webapp y Postgres.
   interna:
     driver: bridge
-    internal: false
+  # Red por la que entra el trafico. Si usas Nginx Proxy Manager en Docker,
+  # conectalo a esta red (ver guia_despligue.md) y podras enrutar por nombre de
+  # contenedor sin publicar ningun puerto al host.
+  entrada:
+    name: ${RED_ENTRADA:-milern_entrada}
+    driver: bridge
   externa:
     driver: bridge

@@ -1,10 +1,16 @@
 import { construirServidor } from './server.js';
-import { env } from './config/env.js';
+import { env, validarConfigSilencio } from './config/env.js';
+import { describirVentana } from './domain/silencio.js';
 import { esperarDisponible, pool } from './db/pool.js';
 import { ejecutarBootstrap } from './bootstrap.js';
 
 async function main(): Promise<void> {
+  // Antes de abrir el puerto: una zona horaria mal escrita mandaria los
+  // esfuerzos a deshora sin error visible.
+  validarConfigSilencio();
+
   const app = await construirServidor();
+  app.log.info(describirVentana());
 
   app.log.info('esperando disponibilidad de PostgreSQL...');
   await esperarDisponible();

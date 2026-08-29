@@ -3,7 +3,8 @@ import * as colaRepo from '../repositories/cola.repo.js';
 import * as nodosRepo from '../repositories/nodos.repo.js';
 import * as grafosRepo from '../repositories/grafos.repo.js';
 import { configDeFase, evaluarTransicion } from '../domain/fases.js';
-import { deltaUE, indiceGlobal } from '../utils/tiempo.js';
+import { agendarSiguiente, enHorasDeSilencio } from '../domain/silencio.js';
+import { indiceGlobal } from '../utils/tiempo.js';
 import { env, SEGUNDOS_POR_UE } from '../config/env.js';
 import { noEncontrado } from '../utils/errors.js';
 
@@ -19,7 +20,7 @@ export interface ItemDespacho {
 
 export interface RespuestaDespacho {
   item: ItemDespacho | null;
-  motivo?: 'cola_vacia' | 'limite_ventana' | 'espaciado';
+  motivo?: 'cola_vacia' | 'limite_ventana' | 'espaciado' | 'horas_silencio';
   enviados_en_ventana: number;
 }
 
@@ -32,9 +33,19 @@ export interface RespuestaDespacho {
  * restricciones de caudal antes de entregar un item:
  *   - maximo 10 mensajes por ventana de 1 UE (600 s);
  *   - separacion minima de 60 s entre mensajes consecutivos.
+ *
+ * [feature 1.3] Ademas se respetan las horas de silencio. El tick ya evita
+ * generar esfuerzos en esa franja, pero la cola puede arrastrar items encolados
+ * justo antes de las 22:00; sin esta comprobacion se enviarian ya de noche y se
+ * incumpliria el requisito "no se va a enviar esfuerzos desde las 10pm hasta
+ * las 7am" (DEC-017).
  */
 export async function reclamarSiguiente(): Promise<RespuestaDespacho> {
   return enTransaccion(async (cx) => {
+    if (enHorasDeSilencio(indiceGlobal())) {
+      return { item: null, motivo: 'horas_silencio', enviados_en_ventana: 0 };
+    }
+
     const enVentana = await colaRepo.enviadosRecientes(cx, SEGUNDOS_POR_UE);
     if (enVentana >= env.despacho.maxPorVentana) {
       return { item: null, motivo: 'limite_ventana', enviados_en_ventana: enVentana };
@@ -120,8 +131,8 @@ export async function confirmarEnvio(
         }
 
         const cfg = configDeFase(transicion.fase);
-        const ig = indiceGlobal();
-        const nuevoIndice = ig + deltaUE(cfg.min, cfg.max);
+        // [LOG-SILENCIO paso 2] el nuevo indice se aparta de las horas de silencio.
+        const nuevoIndice = agendarSiguiente(indiceGlobal(), cfg.min, cfg.max);
 
         await nodosRepo.aplicarAgenda(cx, nodo.id, {
           fase: transicion.fase,

@@ -19,8 +19,9 @@ migraciones, importación de workflows, ciclo de esfuerzos y cierre TLS.
 | Docker Engine | 24+ | con el plugin `docker compose` v2 |
 | RAM | 2 GB | 4 GB recomendado (n8n es el más pesado) |
 | Disco | 10 GB | crece con el histórico de esfuerzos y ejecuciones |
-| Puertos | 80, 443 | libres y abiertos en el firewall. Con Cloudflare Tunnel no hace falta abrir ninguno (ver 4.3) |
+| Puertos | 80, 443 | los usa Nginx Proxy Manager. Los de MILERN quedan en `127.0.0.1` |
 | DNS | registro A | apuntando al host. Con Cloudflare, con la nube naranja activada |
+| Proxy | Nginx Proxy Manager | ya instalado en el host (o usa el proxy propio del ASI, ver 5.3) |
 
 Además: un **bot de Telegram** creado con [@BotFather](https://t.me/BotFather) y
 su token.
@@ -79,8 +80,8 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 | `N8N_PASSWORD` | acceso básico al editor de n8n |
 | `N8N_ENCRYPTION_KEY` | cifra las credenciales guardadas por n8n |
 | `BOOTSTRAP_EMAIL` / `BOOTSTRAP_PASSWORD` | cuenta inicial creada al arrancar |
-| `CONFIAR_EN_CLOUDFLARE` | `true` **solo** si Cloudflare está delante (ver 4.3). No lleva secreto |
-| `CERTBOT_EMAIL` | avisos de caducidad de Let's Encrypt. Se deja vacío si usas Cloudflare |
+| `ZONA_HORARIA` | **imprescindible**: define cuándo empiezan las horas de silencio (sección 4) |
+| `PUERTO_WEBAPP` / `PUERTO_API` / `PUERTO_N8N` | dónde escucha cada servicio para que NPM lo alcance |
 
 > `N8N_ENCRYPTION_KEY` no se puede cambiar después sin invalidar las
 > credenciales ya guardadas. Respáldala junto con el resto de secretos.
@@ -89,259 +90,191 @@ Edita `.env` y sustituye **todos** los valores marcados `CAMBIAR`:
 chmod 600 .env    # contiene secretos en claro
 ```
 
+> **Seguridad reducida a propósito.** Este despliegue asume un solo usuario
+> detrás de NPM y Cloudflare, así que el secreto compartido de
+> `/api/v1/internal/*` y el limitador de caudal vienen **apagados**.
+> `docs/seguridad_removida.md` explica de qué protege cada medida y cuándo
+> conviene volver a encenderla.
+
 ---
 
-## 4. Certificado TLS
+## 4. Horas de silencio: la zona horaria
 
-### 4.1 Qué es y por qué el proxy lo necesita
+Antes de levantar nada, un ajuste que conviene no dejar para después.
 
-Un **certificado TLS** hace dos cosas a la vez:
-
-1. **Cifra** el tráfico entre el navegador y el servidor. Sin él, todo viaja en
-   texto plano y cualquiera en el camino —el wifi de un café, el proveedor de
-   internet, un router intermedio— puede leerlo. En MILERN eso significaría
-   exponer la contraseña del ingreso, el token de sesión, los API Token de la
-   CLI y el contenido completo de todos los nodos.
-2. **Acredita la identidad** del servidor. El certificado lo firma una autoridad
-   en la que el navegador ya confía, de modo que el cliente puede comprobar que
-   habla con tu dominio y no con alguien que se ha colado en medio. Sin esa
-   firma, el cifrado protegería una conversación con un desconocido.
-
-El **contenedor 05** es quien lo necesita porque es el único que recibe tráfico
-de fuera. Es el punto donde termina el TLS (*TLS termination*): descifra lo que
-llega, decide a dónde va —SPA, `/api`, `/webhook`— y lo reenvía en texto plano
-por la red interna de Docker, que no sale de la máquina. Los contenedores 01–04
-no publican puertos y por eso no necesitan certificado propio.
-
-Hay además dos motivos que no son opcionales en este sistema:
-
-- **Telegram exige HTTPS con certificado válido** para entregar webhooks. Con un
-  autofirmado, `setWebhook` falla y el bot deja de recibir mensajes.
-- Los navegadores tratan el HTTP plano como inseguro y bloquean parte de la API
-  web moderna.
-
-> El proxy genera un certificado **autofirmado** si no encuentra otro, solo para
-> poder arrancar. Sirve para probar en local, pero el navegador mostrará aviso y
-> Telegram lo rechazará. Hay que sustituirlo antes de exponer el sistema.
-
-### 4.2 Qué camino te toca
-
-La respuesta depende de si hay algo delante de tu servidor:
-
-| Tu situación | Qué usar | ¿Renovación? |
-|---|---|---|
-| **Cloudflare delante** (nube naranja) | **Cloudflare Origin Certificate** | **No**: dura 15 años |
-| Servidor expuesto directo a internet | Let's Encrypt vía `scripts/certificado.sh` | Sí, cada 90 días |
-| Solo pruebas en local | El autofirmado que se genera solo | No aplica |
-
-**Si usas Oracle Cloud + Cloudflare, te toca la primera fila: la 4.3.** No
-necesitas Let's Encrypt, ni certbot, ni cron de renovación.
-
-### 4.3 Con Cloudflare (Oracle Cloud + Cloudflare)
-
-Cuando activas la nube naranja en Cloudflare, el tráfico deja de ir directo a tu
-servidor y pasa a hacer dos saltos:
-
-```
-Navegador  ──HTTPS──>  Cloudflare  ──HTTPS──>  tu servidor (proxy MILERN)
-           certificado              certificado
-           de Cloudflare            de origen
-           (automático)             (el que instalas tú)
-```
-
-El primer salto ya está resuelto: Cloudflare pone su propio certificado, válido
-y renovado por ellos. Lo que sigue haciendo falta es el **segundo salto**, y
-aquí está la razón por la que no puedes saltártelo:
-
-Cloudflare ofrece un modo llamado **Flexible** que deja ese segundo tramo en HTTP
-plano. El candado aparece en el navegador, pero el trayecto entre Cloudflare y tu
-máquina en Oracle Cloud cruza internet **sin cifrar**. Es el peor escenario:
-parece seguro y no lo es. **No uses Flexible.**
-
-#### Paso 1 — Emitir el Origin Certificate
-
-Es gratuito, lo emite Cloudflare y **dura 15 años**, así que no hay renovación
-que programar.
-
-1. Panel de Cloudflare → tu dominio → **SSL/TLS** → **Origin Server**.
-2. **Create Certificate**. Deja *Let Cloudflare generate a private key and CSR*.
-3. En *Hostnames* añade tu dominio y el comodín: `milern.midominio.com` y
-   `*.midominio.com`.
-4. Validez: **15 años**. Formato: **PEM**.
-5. Te muestra dos bloques **una sola vez**. Cópialos a tu servidor:
+El sistema no envía esfuerzos **entre las 10pm y las 7am**. Esa franja es hora de
+**reloj de pared**, pero el `indice_global` deriva del epoch Unix, que es UTC.
+Hace falta decirle en qué huso vives:
 
 ```bash
-cd milern/deploy
-nano nginx/certs/fullchain.pem   # pega "Origin Certificate"
-nano nginx/certs/privkey.pem     # pega "Private Key"
-chmod 644 nginx/certs/fullchain.pem
-chmod 600 nginx/certs/privkey.pem
+# deploy/.env
+ZONA_HORARIA=America/Lima        # identificador IANA
+SILENCIO_ACTIVO=true
+SILENCIO_HORA_INICIO=22          # 10pm, inclusive
+SILENCIO_HORA_FIN=7              # 7am, exclusive
+SILENCIO_DESPLAZAMIENTO_UE=54    # 9 horas, lo que dura la ventana
 ```
 
-#### Paso 2 — Modo de cifrado Full (strict)
+**Es el ajuste más fácil de olvidar y el que peor avisa cuando está mal**: con
+`UTC` en un huso UTC-5, el silencio caería entre las 17:00 y las 02:00 locales.
+Dejaría de enviar por la tarde y seguiría enviando de madrugada, justo lo
+contrario de lo que buscas, y sin ningún error en los registros.
 
-En **SSL/TLS → Overview**, elige **Full (strict)**.
+Hay dos salvaguardas:
 
-| Modo | Segundo salto | Veredicto |
-|---|---|---|
-| Off | sin cifrar | no |
-| Flexible | **sin cifrar** | no, aunque el navegador muestre candado |
-| Full | cifrado, sin validar | acepta un impostor en el segundo salto |
-| **Full (strict)** | cifrado y validado | **este** |
+- El backend **valida la zona al arrancar** y se niega a arrancar si no la
+  reconoce; también rechaza una ventana de 24 h, que silenciaría el sistema para
+  siempre.
+- `verificar_despliegue.sh` imprime qué hora local cree el sistema que es, para
+  que la contrastes con tu reloj (sección 7).
 
-El Origin Certificate solo lo reconoce Cloudflare, no los navegadores. Eso es
-exactamente lo que se quiere: el visitante ve el certificado de Cloudflare y
-Cloudflare valida el tuyo. Si entras por la IP del servidor saltándote
-Cloudflare, verás un aviso de certificado: es lo esperado.
+Cómo se comporta:
 
-#### Paso 3 — Decirle al proxy que está detrás de Cloudflare
-
-En `deploy/.env`:
-
-```bash
-CONFIAR_EN_CLOUDFLARE=true
-```
-
-**Esto no es cosmético.** Detrás de Cloudflare, todas las peticiones llegan al
-proxy con IP *de Cloudflare*. Sin esta opción, el limitador de caudal metería a
-todos los visitantes del mundo en el mismo cubo —un solo usuario abusivo
-bloquearía a los demás— y los registros solo mostrarían IPs de Cloudflare.
-
-Con la opción activada, nginx recupera la IP real desde la cabecera
-`CF-Connecting-IP`, y solo la acepta si la petición viene de un rango de IP de
-Cloudflare (`deploy/nginx/cloudflare-ips.conf`). Por eso la opción está apagada
-por defecto: confiar en esa cabecera sin un proxy conocido delante permitiría a
-cualquiera falsificar su IP y esquivar el limitador.
-
-Aplica el cambio:
-
-```bash
-docker compose --env-file .env up -d proxy
-```
-
-Comprueba que la IP real llega bien:
-
-```bash
-docker compose --env-file .env logs --tail=20 proxy
-```
-
-Deben aparecer IPs de visitantes reales, no rangos `104.16.x` o `172.64.x`. Si
-siguen apareciendo IPs de Cloudflare, refresca los rangos:
-
-```bash
-bash scripts/actualizar_ips_cloudflare.sh
-docker compose --env-file .env up -d --build proxy
-```
-
-#### Paso 4 — Ajustes de Cloudflare para este sistema
-
-- **DNS**: registro `A` hacia la IP pública de tu instancia, con la **nube
-  naranja activada** (proxied).
-- **SSL/TLS → Edge Certificates → Always Use HTTPS**: activado.
-- **Telegram**: funciona sin más. El bot habla con Cloudflare, que presenta un
-  certificado válido. Recuerda que Telegram solo entrega webhooks en los puertos
-  443, 80, 88 y 8443; el 443 de Cloudflare cumple.
-- **Ojo con las reglas de caché**: no caches `/api/`. Cloudflare no cachea
-  respuestas de API por defecto, pero si has creado alguna *Page Rule* de
-  "Cache Everything", exclúyelo explícitamente.
-
-#### Alternativa: Cloudflare Tunnel
-
-Si prefieres **no abrir ningún puerto** en Oracle Cloud —muy razonable, y evita
-por completo el problema de que alguien descubra tu IP de origen—, usa
-`cloudflared`. El túnel sale desde tu servidor hacia Cloudflare, así que no hace
-falta ingreso ninguno ni certificado de origen: el propio túnel va cifrado.
-
-Apunta el túnel a `http://localhost:80` y mantén `CONFIAR_EN_CLOUDFLARE=true`.
-En ese caso puedes cerrar 80 y 443 en la lista de seguridad de la VCN.
-
-### 4.4 Sin Cloudflare: Let's Encrypt y su renovación
-
-Solo si tu servidor está expuesto directamente a internet. Requiere que el
-**puerto 80 sea alcanzable desde fuera**: es por donde Let's Encrypt comprueba
-que el dominio es tuyo (reto ACME HTTP-01).
-
-#### Emisión
-
-El sistema tiene que estar levantado: nginx sirve el reto desde
-`/.well-known/acme-challenge/` mientras sigue atendiendo el resto.
-
-```bash
-cd deploy
-docker compose --env-file .env up -d
-bash scripts/certificado.sh emitir
-```
-
-El script comprueba primero que el reto sea alcanzable y, si no lo es, dice qué
-mirar en vez de dejarte un error opaco de certbot. Después pide el certificado,
-lo copia a `nginx/certs/` y recarga nginx **sin cortar conexiones**.
-
-#### Renovación con el cron del host
-
-Los certificados de Let's Encrypt duran **90 días**. `certbot renew` solo actúa
-cuando quedan menos de 30, así que puedes ejecutarlo a diario o semanalmente sin
-riesgo: si no toca renovar, no hace nada.
-
-Edita el cron del usuario que administra el despliegue:
-
-```bash
-crontab -e
-```
-
-Y añade (ajusta la ruta):
-
-```cron
-# Renovación del certificado TLS de MILERN — lunes a las 03:17
-17 3 * * 1 cd /home/ubuntu/milern/deploy && /bin/bash scripts/certificado.sh renovar >> /var/log/milern-certificado.log 2>&1
-```
-
-Sobre esa línea:
-
-| Parte | Por qué |
+| Momento | Qué ocurre |
 |---|---|
-| `17 3 * * 1` | lunes a las 03:17. Let's Encrypt **pide** no usar horas en punto: reparte la carga de sus servidores |
-| `cd .../deploy` | el script busca `.env` y `docker-compose.yml` en su directorio |
-| `/bin/bash` | cron usa `/bin/sh`, y el script necesita bash |
-| `>> ... 2>&1` | sin esto, cron intenta enviarte un correo y el fallo pasa desapercibido |
+| Tick de 10 min dentro de la franja | no genera ni encola nada; sí archiva nodos vencidos |
+| Worker dentro de la franja | no entrega mensajes, ni siquiera los encolados antes de las 22:00 |
+| Un esfuerzo cae a las 23:40 | se desplaza +54 UE (9 h) → 08:40 |
+| Un esfuerzo cae a las 15:00 | se deja tal cual |
 
-El script es **idempotente**: compara el certificado antes y después, y solo
-publica y recarga nginx si de verdad cambió.
+Los esfuerzos no se pierden: se aplazan. Al reanudar a las 07:00, la cola sale al
+ritmo de siempre (1 por minuto, máximo 10 por UE).
 
-Comprueba que el cron funciona sin esperar 90 días:
+---
+
+## 5. Levantar el sistema y publicarlo con Nginx Proxy Manager
 
 ```bash
 cd deploy
-bash scripts/certificado.sh renovar     # debe decir "sin cambios"
-bash scripts/certificado.sh estado      # fecha de caducidad
-tail /var/log/milern-certificado.log
+docker compose --env-file .env up -d --build
 ```
 
-Y programa un aviso propio por si la renovación falla en silencio:
+La primera construcción tarda varios minutos. El orden de arranque lo resuelven
+los *healthchecks*: `postgres` debe estar sano antes de que arranquen `backend` y
+`n8n`.
 
-```cron
-0 9 * * 1 cd /home/ubuntu/milern/deploy && /bin/bash scripts/certificado.sh estado | mail -s "MILERN: estado del certificado" tu@correo
+```bash
+docker compose --env-file .env ps
 ```
 
-### 4.5 Oracle Cloud: el firewall doble
+Deben aparecer cuatro servicios: `postgres`, `backend`, `n8n` y `webapp`.
+**No hay contenedor `proxy`**: el enrutado lo hace Nginx Proxy Manager. Si algún
+día quieres el proxy propio del ASI, está en la sección 5.3.
 
-En Oracle Cloud **no basta con abrir el puerto en la consola**. Hay dos
-cortafuegos y la mayoría de despliegues fallidos se explican por olvidar el
-segundo:
+### Esquema de la base
 
-**1. Red virtual (consola de OCI).** Networking → *Virtual Cloud Networks* → tu
-VCN → *Security Lists* (o *Network Security Groups*). Añade reglas de ingreso:
+Los scripts de `deploy/postgres/init/` se ejecutan **automáticamente** en el
+primer arranque del volumen. Sobre una base ya existente:
 
-| Origen | Protocolo | Puerto |
+```bash
+docker compose --env-file .env exec backend node dist/db/migrate.js
+```
+
+### 5.1 Cómo alcanza NPM a los contenedores
+
+Los servicios publican sus puertos **solo en `127.0.0.1`**:
+
+| Servicio | Puerto por defecto | Para qué |
 |---|---|---|
-| `0.0.0.0/0` | TCP | 443 |
-| `0.0.0.0/0` | TCP | 80 |
+| `webapp` | `127.0.0.1:8080` | la SPA |
+| `backend` | `127.0.0.1:3000` | la API |
+| `n8n` | `127.0.0.1:5678` | webhook de Telegram y editor |
 
-Con Cloudflare puedes restringir el origen a los rangos de
-`deploy/nginx/cloudflare-ips.conf` en lugar de `0.0.0.0/0`: así nadie llega a tu
-origen saltándose Cloudflare. Con Cloudflare Tunnel no necesitas ninguna regla.
+Si alguno choca con algo que ya corre en tu VPS, cámbialo en `.env`
+(`PUERTO_WEBAPP`, `PUERTO_API`, `PUERTO_N8N`). El 8080 es el que más suele estar
+ocupado.
 
-**2. Cortafuegos de la propia instancia.** Las imágenes de OCI llegan con reglas
-restrictivas ya puestas:
+Hay dos formas de que NPM llegue hasta aquí:
+
+**Opción A — por red compartida (recomendada).** Si NPM corre en Docker en el
+mismo host, conéctalo a la red de MILERN y podrás enrutar por nombre de
+contenedor, sin depender de puertos del host:
+
+```bash
+docker network connect milern_entrada <contenedor-de-npm>
+```
+
+En NPM usarás `backend`, `webapp` y `n8n` como nombres de host, con los puertos
+internos 3000, 80 y 5678.
+
+**Opción B — por puertos del host.** Apunta NPM a `172.17.0.1` (la puerta del
+bridge de Docker) con los puertos publicados. Más simple de configurar, pero
+depende de que los puertos no cambien.
+
+### 5.2 Configuración en Nginx Proxy Manager
+
+Crea **un solo Proxy Host** para tu dominio, con tres localizaciones.
+
+**Details:**
+
+| Campo | Valor (opción A) |
+|---|---|
+| Domain Names | `milern.midominio.com` |
+| Scheme | `http` |
+| Forward Hostname | `webapp` |
+| Forward Port | `80` |
+| Block Common Exploits | activado |
+| Websockets Support | activado |
+
+**Custom locations** (pestaña *Custom locations*):
+
+| Location | Scheme | Forward Hostname | Forward Port |
+|---|---|---|---|
+| `/api/v1/` | http | `backend` | `3000` |
+| `/webhook/` | http | `n8n` | `5678` |
+| `/salud` | http | `backend` | `3000` |
+
+**SSL:** pestaña *SSL* → *Request a new SSL Certificate*, con *Force SSL* y
+*HTTP/2* activados. NPM pide y **renueva solo** el certificado: no hay cron que
+programar.
+
+> Si usas Cloudflare con la nube naranja, en NPM elige el método DNS Challenge
+> con tu token de Cloudflare. El HTTP challenge también funciona, pero el DNS
+> evita depender de que el puerto 80 esté abierto.
+
+**Bloquea la superficie interna.** `/api/v1/internal/*` es la que dispara ticks
+y consume la cola; solo la usa n8n por la red interna. Como queda cubierta por la
+localización `/api/v1/`, añade una localización más para cerrarla:
+
+| Location | Configuración avanzada |
+|---|---|
+| `/api/v1/internal/` | en *Advanced*: `return 403;` |
+
+Compruébalo después:
+
+```bash
+curl -o /dev/null -w "%{http_code}\n" https://milern.midominio.com/api/v1/internal/despacho/estado
+# debe responder 403
+```
+
+### Cloudflare
+
+- **DNS**: registro `A` a la IP pública del VPS, nube naranja activada.
+- **SSL/TLS → Overview**: **Full (strict)**. Nunca *Flexible*: ese modo deja el
+  tramo Cloudflare→VPS **sin cifrar** aunque el navegador muestre candado.
+- **No caches `/api/`**. Cloudflare no cachea APIs por defecto, pero si tienes
+  alguna regla de *Cache Everything*, exclúyelo.
+- **Telegram** funciona sin más: habla con Cloudflare, que presenta certificado
+  válido. Solo entrega webhooks en los puertos 443, 80, 88 y 8443; el 443 vale.
+
+> **Recomendación.** Con Cloudflare Access (gratis hasta 50 usuarios) pones una
+> pantalla de acceso en el borde: nadie llega a tu VPS sin autenticarse. Es la
+> forma más cómoda de blindar un despliegue personal, y no toca el código.
+> Aplícalo a `milern.midominio.com` **excepto** a `/webhook/`, que debe seguir
+> siendo alcanzable por Telegram.
+
+### Oracle Cloud: el firewall doble
+
+Abrir el puerto en la consola **no basta**; hay dos cortafuegos y olvidar el
+segundo es la causa más habitual de "responde en el servidor pero no desde
+fuera".
+
+**1. Red virtual (consola OCI).** Networking → *Virtual Cloud Networks* → tu VCN
+→ *Security Lists*. Ingreso TCP a los puertos **80 y 443** (los de NPM). Los
+puertos de MILERN no se abren: viven en `127.0.0.1`.
+
+**2. Cortafuegos de la instancia.** Las imágenes de OCI llegan con reglas
+restrictivas:
 
 ```bash
 # Ubuntu
@@ -355,59 +288,22 @@ sudo firewall-cmd --permanent --add-port=443/tcp
 sudo firewall-cmd --reload
 ```
 
-Verifica desde **fuera** de la máquina:
+> **Capacidad.** El *Always Free* AMD da 1 GB de RAM y n8n con PostgreSQL se
+> queda corto. Las instancias ARM (VM.Standard.A1.Flex) llegan a 24 GB gratis:
+> si puedes elegir, ARM. Todas las imágenes tienen variante `arm64`.
+
+### 5.3 Si prefieres el proxy propio del ASI
+
+El contenedor 05 sigue en el repositorio. Para usarlo en lugar de NPM:
 
 ```bash
-curl -I http://TU-DOMINIO/
+docker compose --env-file .env --profile proxy-propio up -d --build
 ```
 
-Si desde el servidor responde pero desde fuera no, el que falta es uno de estos
-dos cortafuegos.
-
-> **Nota de capacidad.** El *Always Free* de Oracle Cloud da 1 GB de RAM en las
-> instancias AMD (VM.Standard.E2.1.Micro), y n8n con PostgreSQL se queda corto
-> ahí. Las instancias ARM (VM.Standard.A1.Flex) permiten hasta 24 GB gratis: si
-> puedes elegir, usa ARM. Todas las imágenes del `docker-compose.yml` tienen
-> variante `arm64`.
-
----
-
-## 5. Levantar el sistema
-
-```bash
-cd deploy
-docker compose --env-file .env up -d --build
-```
-
-Si aún no has instalado el certificado de la sección 4, el proxy arranca con uno
-autofirmado: el sistema funciona para probar, pero el navegador avisará y
-Telegram rechazará el webhook.
-
-La primera construcción tarda varios minutos. El orden de arranque está resuelto
-por *healthchecks*: `postgres` debe estar sano antes de que arranquen `backend`
-y `n8n`.
-
-Comprueba el estado:
-
-```bash
-docker compose --env-file .env ps
-```
-
-Los cinco servicios deben aparecer `Up`; `postgres`, `backend` y `webapp`
-además como `(healthy)`.
-
-### Esquema de la base
-
-Los scripts de `deploy/postgres/init/` se ejecutan **automáticamente** en el
-primer arranque del volumen: crean tablas, tipos, constraints, triggers, vistas
-y siembran `fases_config` con las cuatro etapas.
-
-Si despliegas sobre una base **ya existente**, aplica las migraciones de forma
-idempotente:
-
-```bash
-docker compose --env-file .env exec backend node dist/db/migrate.js
-```
+En ese caso vuelven a aplicar la gestión de certificados
+(`scripts/certificado.sh emitir` y su renovación en cron) y
+`CONFIAR_EN_CLOUDFLARE=true`, que restaura la IP real del visitante. Los detalles
+están en `docs/seguridad_removida.md`, puntos 3 a 5.
 
 ---
 
@@ -430,13 +326,13 @@ Debe informar `Successfully imported 4 workflows`.
 Los workflows entran **inactivos** y sin credenciales: el token del bot nunca se
 versiona en el repositorio.
 
-1. Abre el editor de n8n. No está expuesto por el proxy; publica un túnel local:
+1. Abre el editor de n8n. Escucha en `127.0.0.1:5678` del VPS, así que llega
+   por un túnel SSH desde tu máquina:
    ```bash
-   ssh -L 5678:localhost:5678 usuario@tu-host
-   docker compose --env-file .env exec n8n sh -c 'echo n8n escuchando en 5678'
+   ssh -L 5678:127.0.0.1:5678 usuario@tu-vps
    ```
-   Si prefieres exponerlo temporalmente, añade `ports: ["127.0.0.1:5678:5678"]`
-   al servicio `n8n` y `docker compose up -d n8n`. **Quítalo después.**
+   Y entra en `http://localhost:5678`. No publiques el editor en NPM: guarda el
+   token de tu bot de Telegram.
 2. Entra con `N8N_USER` / `N8N_PASSWORD`.
 3. **Credentials → New → Telegram API**. Nómbrala exactamente
    `Telegram MILERN` y pega el token de BotFather.
@@ -461,6 +357,9 @@ curl -F "url=https://TU-DOMINIO/webhook/milern-telegram-ingesta" \
      "https://api.telegram.org/botTU_TOKEN/setWebhook"
 ```
 
+Esa ruta la sirve NPM con la *custom location* `/webhook/` que creaste en 5.2.
+Si usas Cloudflare Access, **exclúyela**: Telegram no puede autenticarse.
+
 Verifica:
 
 ```bash
@@ -480,9 +379,28 @@ bash scripts/verificar_despliegue.sh
 ```
 
 Comprueba contenedores, salud del backend, integridad del esquema (constraint
-del par atómico, trigger de aciclicidad, `fases_config`) y el proxy, incluido
-que `/api/v1/internal/*` responde **403** desde fuera. Debe terminar con
+del par atómico, trigger de aciclicidad, `fases_config`), qué medidas de
+seguridad están activas y si los puertos están en `127.0.0.1`. Debe terminar con
 `verificacion completa: sin fallos`.
+
+**Presta atención al bloque de horas de silencio**, que imprime algo así:
+
+```
+== [feature 1.3] horas de silencio ==
+  ventana : 22:00 a 7:00 (America/Lima)
+  ahora   : 19:24 -> fuera de la ventana, se envian esfuerzos
+  [!] comprueba que esa hora coincide con tu reloj; si no, ajusta ZONA_HORARIA
+```
+
+Si esa hora no coincide con la de tu reloj, `ZONA_HORARIA` está mal y los
+esfuerzos llegarán a deshora.
+
+Y comprueba a mano que la superficie interna está cerrada en NPM:
+
+```bash
+curl -o /dev/null -w "%{http_code}\n" https://TU-DOMINIO/api/v1/internal/despacho/estado
+# debe responder 403
+```
 
 ### Prueba manual del ciclo completo
 
@@ -572,25 +490,35 @@ docker compose --env-file .env down -v    # BORRA los volúmenes
 
 ## 9. Cliente de terminal (`mylern-cli`)
 
-### Emitir un API Token
-
-```bash
-curl -s -X POST https://TU-DOMINIO/api/v1/auth/tokens \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"nombre":"portatil"}' | jq -r .token
-```
-
-El token se muestra **una sola vez**: la base guarda solo su hash.
-
-### Instalación local
+### Instalación e ingreso
 
 ```bash
 cd cli && npm install && npm run build
-node dist/index.js config https://TU-DOMINIO mlk_EL_TOKEN
+node dist/index.js login https://TU-DOMINIO tu@correo.com
+# pide la contrasena por stdin: no queda en el historial del shell
 node dist/index.js stats
 ```
 
 Opcionalmente enlázalo al `PATH`: `npm link`.
+
+### API Token (alternativa)
+
+Si automatizas desde otra máquina, es preferible un token dedicado: se revoca de
+uno en uno sin cambiar tu contraseña.
+
+```bash
+TOKEN=$(curl -s -X POST https://TU-DOMINIO/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"tu@correo.com","password":"..."}' | jq -r .token)
+
+curl -s -X POST https://TU-DOMINIO/api/v1/auth/tokens \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"nombre":"portatil"}' | jq -r .token
+
+node dist/index.js config https://TU-DOMINIO mlk_EL_TOKEN
+```
+
+El token se muestra **una sola vez**: la base guarda solo su hash.
 
 ### Uso desde el contenedor auxiliar
 
@@ -632,12 +560,15 @@ eval [--id <uuid>]       evaluaciones semanales
 | El grafo no genera esfuerzos | no tiene nodos hoja | `generar_esfuerzo` devuelve `null` con `nodos_hojas` vacío |
 | Evaluación vacía el domingo | ningún nodo en fase 3 o 4 | esperado en instalaciones nuevas |
 | `403` en `/api/v1/internal/*` | comportamiento correcto | esa superficie es solo para n8n, por red interna |
-| `521`/`522` de Cloudflare | Cloudflare no alcanza tu origen | revisa los **dos** cortafuegos de Oracle Cloud (4.5) y que el proxy esté en pie |
-| `526` de Cloudflare | modo Full (strict) sin Origin Certificate válido | instala el Origin Certificate (4.3) o revisa que copiaste los dos bloques completos |
-| Los registros solo muestran IPs `104.16.x` / `172.64.x` | falta `CONFIAR_EN_CLOUDFLARE=true` | actívalo; si persiste, `bash scripts/actualizar_ips_cloudflare.sh` |
-| El limitador bloquea a usuarios legítimos | todos comparten cubo por la IP de Cloudflare | mismo arreglo que la fila anterior |
-| `certificado.sh emitir` dice que el reto no es alcanzable | puerto 80 cerrado o DNS sin propagar | con Cloudflare no uses este script: te toca la 4.3 |
-| Responde desde el servidor pero no desde fuera | cortafuegos de la instancia | `iptables` / `firewalld` en la propia VM (4.5) |
+| `521`/`522` de Cloudflare | Cloudflare no alcanza NPM | revisa los **dos** cortafuegos de Oracle Cloud (5.2) |
+| `526` de Cloudflare | Full (strict) sin certificado válido en NPM | pide el certificado desde la pestaña SSL de NPM |
+| NPM da `502` | no alcanza al contenedor | opción A: ¿conectaste NPM a `milern_entrada`? opción B: ¿los puertos de `.env` son los correctos? |
+| `Bind for 0.0.0.0:8080 failed` al levantar | el puerto ya está ocupado en el host | cambia `PUERTO_WEBAPP` en `.env` |
+| Responde en el servidor pero no desde fuera | cortafuegos de la instancia | `iptables` / `firewalld` en la propia VM (5.2) |
+| **Los esfuerzos llegan de madrugada** | `ZONA_HORARIA` incorrecta | `bash scripts/verificar_despliegue.sh` muestra qué hora cree el sistema que es |
+| **No llega nada en todo el día** | ventana de silencio mal configurada | mismo comando; revisa `SILENCIO_HORA_INICIO` / `SILENCIO_HORA_FIN` |
+| El tick devuelve `en_silencio: true` | comportamiento correcto | estás dentro de la franja 22:00–07:00 |
+| El backend no arranca y menciona `ZONA_HORARIA` | identificador IANA inválido | usa por ejemplo `America/Lima`, no `GMT-5` |
 
 ### Consultas útiles
 
@@ -658,6 +589,13 @@ SELECT nodo_esfuerzo, fase,
 -- estado de la cola
 SELECT estado, count(*) FROM effort_dispatch_queue GROUP BY estado;
 
+-- [feature 1.3] proximos esfuerzos en hora local: ninguno debe caer entre las
+-- 22:00 y las 07:00
+SELECT nodo_esfuerzo,
+       to_char(to_timestamp(indice_siguiente_esfuerzo * 600)
+                 AT TIME ZONE 'America/Lima', 'DD/MM HH24:MI') AS proximo_local
+  FROM nodos WHERE activo ORDER BY indice_siguiente_esfuerzo LIMIT 15;
+
 -- nodos hoja de cada grafo (los que alimentan el Round Robin)
 SELECT grafo_id, count(*) FROM v_nodos_hojas GROUP BY grafo_id;
 ```
@@ -666,20 +604,26 @@ SELECT grafo_id, count(*) FROM v_nodos_hojas GROUP BY grafo_id;
 
 ## 11. Seguridad
 
-Antes de exponer el sistema a Internet:
+Este despliegue lleva la superficie de seguridad **reducida a propósito**: un
+solo usuario, detrás de NPM y Cloudflare. Lo retirado no se ha borrado del
+código; `docs/seguridad_removida.md` explica de qué protege cada medida, por qué
+se apagó y cómo recuperarla.
 
-- [ ] Todos los valores `CAMBIAR` de `.env` sustituidos por secretos generados
-- [ ] `chmod 600 deploy/.env`
-- [ ] `.env` **no** versionado (ya está en `.gitignore`)
-- [ ] Certificado TLS real, no el autofirmado (sección 4)
-- [ ] Con Cloudflare: modo **Full (strict)**, nunca *Flexible*
-- [ ] Con Cloudflare: `CONFIAR_EN_CLOUDFLARE=true`, y los registros muestran IPs reales
-- [ ] Sin Cloudflare: renovación programada en cron y **probada** con `certificado.sh renovar`
-- [ ] Solo 80 y 443 abiertos, en los **dos** cortafuegos de Oracle Cloud
-- [ ] El editor de n8n **no** publicado (acceso por túnel SSH)
-- [ ] `verificar_despliegue.sh` confirma el 403 en `/api/v1/internal/*`
+Antes de exponerlo:
+
+- [ ] `JWT_SECRET`, `PGPASSWORD`, `N8N_PASSWORD` y `N8N_ENCRYPTION_KEY` con
+      valores propios (`openssl rand -base64 36`)
+- [ ] `chmod 600 deploy/.env`, y `.env` no versionado (ya está en `.gitignore`)
+- [ ] `ZONA_HORARIA` correcta y comprobada contra tu reloj (sección 7)
+- [ ] Los tres puertos de MILERN en `127.0.0.1`, no en `0.0.0.0`
+- [ ] En Oracle Cloud, solo 80 y 443 abiertos, en los **dos** cortafuegos
+- [ ] En NPM, `/api/v1/internal/` devuelve **403** desde fuera
+- [ ] Cloudflare en **Full (strict)**, nunca *Flexible*
+- [ ] `N8N_ENCRYPTION_KEY` respaldada fuera del host (cifra el token del bot)
 - [ ] Respaldos programados y **restauración probada al menos una vez**
-- [ ] `N8N_ENCRYPTION_KEY` respaldada fuera del host
 
-Ningún contenedor salvo el proxy publica puertos: `backend`, `n8n` y `postgres`
-solo son alcanzables desde la red interna de Docker.
+Opcionales, según cuánto quieras cerrar:
+
+- [ ] Cloudflare Access delante del dominio (excepto `/webhook/`)
+- [ ] `INTERNAL_API_SECRET` definido, si publicas la API más allá de `127.0.0.1`
+- [ ] `RATE_LIMIT_ACTIVO=true`, si el sistema deja de ser solo tuyo

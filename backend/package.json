@@ -4,13 +4,17 @@
   "private": true,
   "description": "Contenedor 01 - Servidor backend & API MyLern",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "migrate": "node dist/db/migrate.js",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/dominio.test.ts test/silencio.test.ts",
+    "test:db": "tsx --test --test-concurrency=1 test/integracion.test.ts test/silencio-tick.test.ts",
+    "test:todo": "npm run test && npm run test:db"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

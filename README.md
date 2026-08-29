@@ -19,6 +19,7 @@ Se compone de tres módulos:
 | [`trazabilidad.md`](trazabilidad.md) | ASI anotado + cuadro de trazabilidad especificación → artefactos |
 | [`guia_despligue.md`](guia_despligue.md) | Puesta en producción paso a paso |
 | [`docs/decisiones.md`](docs/decisiones.md) | Decisiones de diseño no descritas en el ASI, con su justificación |
+| [`docs/seguridad_removida.md`](docs/seguridad_removida.md) | Medidas de seguridad retiradas: de qué protegen y cuándo recuperarlas |
 
 ---
 
@@ -34,7 +35,7 @@ milern/
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── postgres/init/  contenedor 03 — esquema, funciones y triggers
-│   ├── nginx/          contenedor 05 — reverse proxy TLS
+│   ├── nginx/          contenedor 05 — reverse proxy TLS (perfil opcional)
 │   └── scripts/        importación de workflows, respaldo, verificación
 └── docs/
 ```
@@ -72,10 +73,18 @@ texto como `padre + enlace + contenido`.
 Un nodo registrado con fecha límite es **temporal**: no entra al grafo y sigue
 emitiendo cada 54–66 UE hasta archivarse.
 
+### Horas de silencio
+
+No se envían esfuerzos **entre las 10pm y las 7am** (hora local de
+`ZONA_HORARIA`). El tick no genera nada dentro de la franja, el worker no
+entrega lo que quedara en cola, y cualquier `indice_siguiente_esfuerzo` que
+fuese a caer ahí se desplaza +54 UE (9 h). Nada se pierde: se aplaza.
+
 ### Flujo de un esfuerzo
 
 ```
 n8n (cada 10 min)  ->  POST /internal/scheduler/tick
+                          si es hora de silencio: solo archiva y se detiene
                           archiva vencidos, encola nodos y grafos elegibles
 n8n (cada minuto)  ->  POST /internal/despacho/siguiente
                           entrega 1 esfuerzo (máx. 10 por UE, 1 por minuto)
@@ -90,14 +99,15 @@ n8n (cada minuto)  ->  POST /internal/despacho/siguiente
 
 ```bash
 cd deploy
-cp .env.example .env      # sustituir todos los valores CAMBIAR
+cp .env.example .env      # ajusta ZONA_HORARIA y las contraseñas
 docker compose --env-file .env up -d --build
 bash scripts/importar_workflows.sh
 bash scripts/verificar_despliegue.sh
 ```
 
-El procedimiento completo, incluidos TLS y la configuración del bot de Telegram,
-está en [`guia_despligue.md`](guia_despligue.md).
+Los servicios escuchan en `127.0.0.1` para que un proxy externo (Nginx Proxy
+Manager) los publique. El procedimiento completo —NPM, Cloudflare, Oracle Cloud y
+el bot de Telegram— está en [`guia_despligue.md`](guia_despligue.md).
 
 ---
 
@@ -121,14 +131,25 @@ cd cli && npm install && npm run build
 | Suite | Qué cubre | Requiere base |
 |---|---|---|
 | `backend/test/dominio.test.ts` | 23 pruebas: `generar_esfuerzo`, umbrales de etapa, aciclicidad, parser, tiempo global | no |
-| `backend/test/integracion.test.ts` | 12 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, evaluación, `undo`, caudal | sí |
+| `backend/test/silencio.test.ts` | 13 pruebas: fronteras de la ventana, hora local, desplazamiento de 54 UE | no |
+| `backend/test/integracion.test.ts` | 13 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, evaluación, `undo`, caudal | sí |
+| `backend/test/silencio-tick.test.ts` | 5 pruebas: compuertas del tick y del worker durante el silencio | sí |
 
 ```bash
 cd backend
-npx tsx --test test/dominio.test.ts
+
+# dominio: no necesita base
+npm test
+
+# con base de datos
 PGHOST=127.0.0.1 PGPORT=5432 PGUSER=mylern PGPASSWORD=... PGDATABASE=mylern \
-  JWT_SECRET=x INTERNAL_API_SECRET=x npx tsx --test test/integracion.test.ts
+  JWT_SECRET=x ZONA_HORARIA=America/Lima npm run test:db
 ```
+
+> `test:db` pasa `--test-concurrency=1` a propósito. `node --test` ejecuta los
+> ficheros en procesos paralelos y `ejecutarTick()` opera sobre **todos** los
+> usuarios: en paralelo, el tick de un fichero encola nodos del usuario del otro
+> y las aserciones de aislamiento fallan de forma intermitente.
 
 ---
 

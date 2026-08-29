@@ -5,7 +5,8 @@ import * as auditoria from '../repositories/auditoria.repo.js';
 import type { OrigenTx } from '../repositories/auditoria.repo.js';
 import { validarAciclicidad } from '../domain/aciclicidad.js';
 import { RANGO_GRAFO } from '../domain/fases.js';
-import { deltaUE, indiceGlobal } from '../utils/tiempo.js';
+import { agendarSiguiente } from '../domain/silencio.js';
+import { indiceGlobal } from '../utils/tiempo.js';
 import { ErrorDominio, invalido, noEncontrado } from '../utils/errors.js';
 import type { Grafo, Nodo } from '../domain/tipos.js';
 
@@ -20,7 +21,7 @@ export async function crearGrafo(
       nombre: datos.nombre,
       descripcion: datos.descripcion,
       // Se agenda desde el arranque dentro del rango propio del grafo.
-      indice_siguiente_esfuerzo: indiceGlobal() + deltaUE(RANGO_GRAFO.min, RANGO_GRAFO.max),
+      indice_siguiente_esfuerzo: agendarSiguiente(indiceGlobal(), RANGO_GRAFO.min, RANGO_GRAFO.max),
     });
     await auditoria.registrar(cx, {
       usuario_id: usuarioId, origen, operacion: 'crear', entidad: 'grafo',
@@ -87,7 +88,7 @@ export async function insertarNodo(
       nodo_crudo: datos.contenido,
       indice_fecha_limite: null,
       // Un nodo nacido dentro del grafo se integra directamente al ciclo del grafo.
-      indice_siguiente_esfuerzo: indiceGlobal() + deltaUE(RANGO_GRAFO.min, RANGO_GRAFO.max),
+      indice_siguiente_esfuerzo: agendarSiguiente(indiceGlobal(), RANGO_GRAFO.min, RANGO_GRAFO.max),
       grafo_id: grafoId,
       parent_id: parentId,
       enlace_contenido: enlace,

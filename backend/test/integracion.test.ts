@@ -4,6 +4,12 @@
  * confirmacion -> transicion de fase -> ingreso al grafo -> evaluacion.
  *
  * Se omiten si no hay base disponible (PGHOST/PGPORT).
+ *
+ * IMPORTANTE: los ficheros que tocan la base deben ejecutarse EN SERIE
+ * (`npm run test:db`, que pasa --test-concurrency=1). `node --test` lanza los
+ * ficheros en procesos paralelos, y `ejecutarTick()` opera sobre TODOS los
+ * usuarios: en paralelo, el tick de un fichero encola nodos del usuario del
+ * otro y las aserciones de aislamiento fallan de forma intermitente.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,15 +24,27 @@ import * as undoService from '../src/services/undo.service.js';
 import * as nodosRepo from '../src/repositories/nodos.repo.js';
 import * as grafosRepo from '../src/repositories/grafos.repo.js';
 import { indiceGlobal } from '../src/utils/tiempo.js';
+import { env } from '../src/config/env.js';
+import { enHorasDeSilencio } from '../src/domain/silencio.js';
 
 /**
  * Comprueba que un reagendamiento cayo dentro del rango de la etapa.
+ *
  * Se toma el indice global ANTES y DESPUES de la operacion porque el tick de 1
  * UE puede cruzarse durante la prueba: sin esa ventana la asercion es una
  * carrera contra el reloj.
+ *
+ * [feature 1.3] Al rango se le admite un desplazamiento de k x 54 UE: si el
+ * indice calculado caia en las horas de silencio, se aparta de la ventana.
  */
 function enRango(indiceAgendado: number, igAntes: number, igDespues: number, min: number, max: number): boolean {
-  return indiceAgendado >= igAntes + min && indiceAgendado <= igDespues + max;
+  const salto = env.silencio.activo ? env.silencio.desplazamientoUE : 0;
+  for (let k = 0; k <= 3; k++) {
+    const d = k * salto;
+    if (indiceAgendado >= igAntes + min + d && indiceAgendado <= igDespues + max + d) return true;
+    if (salto === 0) break;
+  }
+  return false;
 }
 
 const EMAIL = `it-${Date.now()}@test.local`;
@@ -63,6 +81,7 @@ test('registro de nodo por Telegram con los tres segmentos', async () => {
     enRango(nodo!.indice_siguiente_esfuerzo, igAntes, indiceGlobal(), 2, 6),
     `agendamiento inicial fuera del rango de fase_1: ${nodo!.indice_siguiente_esfuerzo}`,
   );
+  assert.equal(enHorasDeSilencio(nodo!.indice_siguiente_esfuerzo), false);
 });
 
 test('un mensaje mal formado responde explicacion y no crea nodo', async () => {
@@ -85,6 +104,9 @@ test('tick -> despacho -> confirmacion incrementa el contador y reagenda', async
     [nodo.id, indiceGlobal() - 1]);
 
   const tick = await scheduler.ejecutarTick();
+  // Si la prueba corre dentro de las horas de silencio, el tick no encola: es
+  // el comportamiento correcto, no un fallo.
+  if (tick.en_silencio) { assert.equal(tick.nodos_encolados, 0); return; }
   assert.ok(tick.nodos_encolados >= 1, 'el tick debio encolar el nodo');
 
   // El caudal (10 por UE / 1 por minuto) puede diferir la entrega: se lee el
@@ -106,6 +128,7 @@ test('tick -> despacho -> confirmacion incrementa el contador y reagenda', async
     enRango(actualizado!.indice_siguiente_esfuerzo, igAntes, indiceGlobal(), 2, 6),
     `reagendamiento fuera del rango de fase_1: ${actualizado!.indice_siguiente_esfuerzo}`,
   );
+  assert.equal(enHorasDeSilencio(actualizado!.indice_siguiente_esfuerzo), false);
 
   const log = await pool.query('SELECT count(*)::int n FROM esfuerzos_log WHERE nodo_id = $1', [nodo.id]);
   assert.equal(log.rows[0].n, 1);
@@ -133,7 +156,8 @@ test('un nodo no temporal que alcanza fase_4 ingresa a un grafo de conocimiento'
             indice_siguiente_esfuerzo=$2 WHERE id=$1`,
     [nodo.id, indiceGlobal() - 1],
   );
-  await scheduler.ejecutarTick();
+  const tickFase4 = await scheduler.ejecutarTick();
+  if (tickFase4.en_silencio) return;   // en silencio no hay nada que confirmar
   const fila = await pool.query(
     `SELECT id::text FROM effort_dispatch_queue WHERE nodo_id=$1 ORDER BY id DESC LIMIT 1`, [nodo.id]);
   const res = await despacho.confirmarEnvio(fila.rows[0].id, 1);
@@ -168,6 +192,7 @@ test('el grafo genera esfuerzos por Round Robin sobre sus hojas', async () => {
     [grafo.id, indiceGlobal() - 1]);
   const igAntes = indiceGlobal();
   const tick = await scheduler.ejecutarTick();
+  if (tick.en_silencio) { assert.equal(tick.grafos_encolados, 0); return; }
   assert.ok(tick.grafos_encolados >= 1);
 
   const item = await pool.query(
@@ -182,6 +207,7 @@ test('el grafo genera esfuerzos por Round Robin sobre sus hojas', async () => {
     enRango(g!.indice_siguiente_esfuerzo, igAntes, indiceGlobal(), 54, 66),
     `reagendamiento del grafo fuera de rango: ${g!.indice_siguiente_esfuerzo}`,
   );
+  assert.equal(enHorasDeSilencio(g!.indice_siguiente_esfuerzo), false);
 });
 
 test('eliminar un nodo preserva a sus hijos como raices y devuelve el padre a hoja', async () => {
@@ -254,10 +280,27 @@ test('undo revierte la ultima operacion registrada en el log', async () => {
   const nodo = await nodosService.registrar(
     usuarioId, { nodo_esfuerzo: 'a deshacer', nodo_crudo: null, fecha_limite: null }, 'cli',
   );
+
+  // Se comprueba el EFECTO sobre el nodo recien creado, no el texto del
+  // mensaje: asi la asercion no depende de que hayan dejado otras pruebas en el
+  // log, y sigue fallando si `undo` revirtiese una operacion distinta.
+  const previo = await pool.query(
+    `SELECT id::text, entidad, operacion FROM transacciones_log
+      WHERE usuario_id = $1 AND NOT deshecha AND operacion <> 'undo'
+      ORDER BY id DESC LIMIT 3`, [usuarioId]);
+  assert.equal(previo.rows[0]?.entidad, 'nodo');
+  assert.equal(previo.rows[0]?.operacion, 'crear');
+
   const r = await undoService.deshacerUltima(usuarioId);
-  assert.match(r.detalle, /baja logica/);
+
   const final = await nodosRepo.obtener(pool, nodo.id);
-  assert.equal(final!.activo, false);
+  assert.equal(
+    final!.activo, false,
+    `undo debio archivar ${nodo.id}; revirtio "${r.revertida.entidad}:${r.revertida.operacion}" ` +
+    `(log previo: ${JSON.stringify(previo.rows)})`,
+  );
+  assert.equal(r.revertida.entidad, 'nodo');
+  assert.equal(r.revertida.operacion, 'crear');
 });
 
 test('el caudal de despacho respeta el limite de 1 mensaje por minuto', async () => {
@@ -271,5 +314,33 @@ test('el caudal de despacho respeta el limite de 1 mensaje por minuto', async ()
   });
   const r = await despacho.reclamarSiguiente();
   assert.equal(r.item, null);
-  assert.equal(r.motivo, 'espaciado');
+  // Si la suite corre entre las 22:00 y las 07:00, la compuerta de silencio
+  // actua antes que la de espaciado: ambas son respuestas correctas.
+  assert.ok(
+    r.motivo === 'espaciado' || r.motivo === 'horas_silencio',
+    `motivo inesperado: ${r.motivo}`,
+  );
+});
+
+// --- [feature 1.3] horas de silencio ----------------------------------------
+
+test('todo indice_siguiente_esfuerzo generado cae fuera de las horas de silencio', async () => {
+  const { enHorasDeSilencio } = await import('../src/domain/silencio.js');
+
+  // Se crean nodos suficientes para cubrir todo el rango aleatorio de fase_1.
+  const creados = [];
+  for (let i = 0; i < 40; i++) {
+    creados.push(await nodosService.registrar(
+      usuarioId, { nodo_esfuerzo: `agenda ${i}`, nodo_crudo: null, fecha_limite: null }, 'web',
+    ));
+  }
+  for (const n of creados) {
+    assert.equal(
+      enHorasDeSilencio(n.indice_siguiente_esfuerzo), false,
+      `nodo ${n.id} agendado dentro de la ventana de silencio`,
+    );
+  }
+
+  const grafo = await grafosService.crearGrafo(usuarioId, { nombre: 'Agenda silencio' }, 'web');
+  assert.equal(enHorasDeSilencio(grafo.indice_siguiente_esfuerzo), false);
 });

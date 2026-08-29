@@ -25,12 +25,17 @@ export async function construirServidor(): Promise<FastifyInstance> {
     origin: (process.env.CORS_ORIGEN ?? '*').split(',').map((s) => s.trim()),
     credentials: true,
   });
-  await app.register(rateLimit, {
-    max: Number(process.env.RATE_LIMIT_MAX ?? 300),
-    timeWindow: '1 minute',
-    // n8n habla por la red interna y tiene su propio caudal controlado.
-    allowList: (req) => req.url.startsWith('/api/v1/internal/'),
-  });
+  // Limitador de caudal: apagado por defecto. En un despliegue personal el
+  // unico cliente es el propio usuario, asi que solo anadiria una via de fallo.
+  // Se enciende con RATE_LIMIT_ACTIVO=true. Ver docs/seguridad_removida.md.
+  if (env.seguridad.rateLimitActivo) {
+    await app.register(rateLimit, {
+      max: env.seguridad.rateLimitMax,
+      timeWindow: '1 minute',
+      // n8n habla por la red interna y tiene su propio caudal controlado.
+      allowList: (req) => req.url.startsWith('/api/v1/internal/'),
+    });
+  }
 
   // Varios endpoints internos se invocan sin cuerpo. Sin este parser, un POST
   // con content-type inesperado y cuerpo vacio se rechaza con 415.

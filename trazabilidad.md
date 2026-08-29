@@ -18,10 +18,10 @@ propio encargo define:
 | Tipo | Patrón | Ocurrencias |
 |---|---|---|
 | `pseudocodigo` | `func [identificador] ([entradas]):` | ESP-002, ESP-004, ESP-006 |
-| `logica` | conjunto de instrucciones indexadas con `-> [logica]` | ESP-001, ESP-003, ESP-005 |
+| `logica` | conjunto de instrucciones indexadas con `-> [logica]` | ESP-001, ESP-003, ESP-005, ESP-008 |
 | `protocolo` | conjunto de ítems indexados con `[n]_ [protocolo]` | ESP-007 |
 
-**Total: 7 especificaciones.** El resto de `ASI.md` son *descripciones* (qué se
+**Total: 8 especificaciones.** El resto de `ASI.md` son *descripciones* (qué se
 debe implementar) y quedan recogidas en el Anexo A, que traza los procedimientos
 y casos de uso que no responden a ninguno de los tres patrones.
 
@@ -37,6 +37,7 @@ Los `feature` usados en los cuadros son los que el propio `ASI.md` establece:
 | `F1` | feature 1 — sistema de espaciado | `## lista de features` |
 | `F1.1` | feature 1.1 — clasificación de los esfuerzos | subfeature |
 | `F1.2` | feature 1.2 — generación y agendación de esfuerzos | subfeature |
+| `F1.3` | feature 1.3 — horas de silencio | subfeature |
 | `F2` | feature 2 — grafo de conocimiento | `## lista de features` |
 | `F2.1` | feature 2.1 — representación del grafo como adjacency list | subfeature |
 | `F2.2` | feature 2.2 — inserción y reparenteo de nodos | subfeature |
@@ -123,6 +124,12 @@ func generar_esfuerzo(index, const &nodos_hojas):   **[Generacion del contenido 
 -> Se identifican los grafos donde `indice_siguiente_esfuerzo <= indice_global`.
 -> Se inserta la solicitud de esfuerzo en la cola de despacho transaccional.
 -> Se actualiza el cursor Round Robin del grafo y se agenda su nuevo `indice_siguiente_esfuerzo` sumando un valor pseudoaleatorio entre 54 y 66 UE.
+
+- feature 1.3: horas de silencio
+* No se va a enviar esfuerzos desde las 10pm hasta las 7am.
+* La logica con la que se implementa este requisito es la siguiente:   **[Horas de silencio, LOG-SILENCIO, ESP-008, logica]**
+-> cuando se activa el workflow cada 10 minutos se comprueba que el indice no corresponda al rango de horas 10pm - 7am
+-> cuando se va a generar un nuevo indice_siguiente_esfuerzo para un nodo o grafo este se suma 54 UE (9 horas) si es que el indice_siguiente_esfuerzo iba a estar en el rango de horas 10pm - 7am
 
 - feature 2: grafo de conocimiento
 Estructura jerarquica y de red para organizar el conocimiento en memoria de largo plazo.
@@ -266,6 +273,7 @@ paso 3 "seguimiento y resolucion":
 | ESP-005 | Validación de aciclicidad en inserción y reparenteo | `LOG-ACICLICIDAD` | lógica | `F2.2` (`F2.4`) | 9 |
 | ESP-006 | Eliminación y desconexión de nodos | `PSC-DEL-NODO` | pseudocódigo | `F2.3` (`F2.4`, `F2.5`) | 9 |
 | ESP-007 | Protocolo de integridad del grafo | `PRT-INTEGRIDAD` | protocolo | `F2.4` (`F2.1`–`F2.3`) | 10 |
+| ESP-008 | Horas de silencio | `LOG-SILENCIO` | lógica | `F1.3` (`F1.2`, `MOD-1`) | 11 |
 
 ---
 
@@ -334,7 +342,7 @@ paso 3 "seguimiento y resolucion":
 | T-002.7 | `backend/src/services/scheduler.service.ts:64` | Punto de invocación: el tick llama a `generarEsfuerzo` con el cursor Round Robin |
 | T-002.8 | `deploy/postgres/init/001_schema.sql:107` | Columna `contenido` generada: `COALESCE(nodo_crudo, nodo_esfuerzo)` |
 | T-002.V1 | `backend/test/dominio.test.ts:16,20,31,35` | Pruebas de conjunto vacío, concatenación con padre, nodo raíz y rotación `index % len` |
-| T-002.V2 | `backend/test/integracion.test.ts:152` | Prueba del contenido compuesto sobre un grafo real |
+| T-002.V2 | `backend/test/integracion.test.ts:170` | Prueba del contenido compuesto sobre un grafo real |
 
 ---
 
@@ -367,7 +375,7 @@ paso 3 "seguimiento y resolucion":
 | T-003.8 | `backend/src/services/scheduler.service.ts:63` | Bucle de grafos dentro del tick, con reagendamiento incluso sin hojas |
 | T-003.9 | `backend/src/repositories/grafos.repo.ts:97` | `reservaDeConocimiento()`: grafo por defecto que recibe los nodos de `fase_4` |
 | T-003.V1 | `space_repetition/02_tick_espaciado.json` | Workflow que dispara el tick |
-| T-003.V2 | `backend/test/integracion.test.ts:152` | Prueba de rotación, avance del cursor y reagendamiento en 54–66 UE |
+| T-003.V2 | `backend/test/integracion.test.ts:170` | Prueba de rotación, avance del cursor y reagendamiento en 54–66 UE |
 
 ---
 
@@ -390,7 +398,7 @@ paso 3 "seguimiento y resolucion":
 
 | índice | ubicación | artefacto |
 |---|---|---|
-| T-004.1 | `backend/src/services/grafos.service.ts:54` | `insertarNodo()`: transcripción del pseudocódigo, dentro de una transacción |
+| T-004.1 | `backend/src/services/grafos.service.ts:55` | `insertarNodo()`: transcripción del pseudocódigo, dentro de una transacción |
 | T-004.2 | `backend/src/repositories/nodos.repo.ts:20` | `crear()`: `crear_registro_nodo` con `is_leaf = TRUE` |
 | T-004.3 | `backend/src/repositories/nodos.repo.ts:218` | `marcarIsLeaf()`: `actualizar_nodo(parent_id, is_leaf = falso)` |
 | T-004.4 | `deploy/postgres/init/002_funciones_triggers.sql:121` | `fn_sync_is_leaf()` + `tg_nodos_is_leaf`: mantiene el flag también ante escrituras directas |
@@ -424,7 +432,7 @@ paso 3 "seguimiento y resolucion":
 |---|---|---|
 | T-005.1 | `backend/src/domain/aciclicidad.ts:18` | `validarAciclicidad()`: los dos pasos del algoritmo, como función pura |
 | T-005.2 | `backend/src/repositories/nodos.repo.ts:177` | `rutaAncestros()`: `WITH RECURSIVE` ascendente desde el padre propuesto |
-| T-005.3 | `backend/src/services/grafos.service.ts:112` | `reparentear()`: valida dentro de la transacción antes de confirmar |
+| T-005.3 | `backend/src/services/grafos.service.ts:113` | `reparentear()`: valida dentro de la transacción antes de confirmar |
 | T-005.4 | `deploy/postgres/init/002_funciones_triggers.sql:51` | `fn_validar_aciclicidad()`: segunda barrera en la base |
 | T-005.5 | `deploy/postgres/init/002_funciones_triggers.sql:98` | `tg_nodos_aciclicidad`: trigger `BEFORE INSERT OR UPDATE OF parent_id` |
 | T-005.6 | `deploy/postgres/init/001_schema.sql:150` | `CHECK chk_no_autopadre`: rechazo declarativo de la autoreferencia |
@@ -455,7 +463,7 @@ paso 3 "seguimiento y resolucion":
 
 | índice | ubicación | artefacto |
 |---|---|---|
-| T-006.1 | `backend/src/services/grafos.service.ts:165` | `eliminarNodo()`: transcripción del pseudocódigo, transaccional |
+| T-006.1 | `backend/src/services/grafos.service.ts:166` | `eliminarNodo()`: transcripción del pseudocódigo, transaccional |
 | T-006.2 | `backend/src/repositories/nodos.repo.ts:207` | `desvincularHijosDirectos()`: anula `parent_id` y `enlace_contenido` de los hijos |
 | T-006.3 | `backend/src/repositories/nodos.repo.ts:193` | `contarHijosActivos()`: cuenta solo descendientes activos |
 | T-006.4 | `backend/src/repositories/nodos.repo.ts:218` | `marcarIsLeaf()`: devuelve al padre la condición de hoja |
@@ -502,6 +510,43 @@ paso 3 "seguimiento y resolucion":
 
 ---
 
+## 2.8 ESP-008 — Horas de silencio
+
+| Campo | Valor |
+|---|---|
+| **nombre** | Horas de silencio |
+| **nemónico** | `LOG-SILENCIO` |
+| **id** | `ESP-008` |
+| **tipo** | `logica` |
+| **feature** | `F1.3` horas de silencio — condiciona `F1.2` generación y agendación de esfuerzos; pertenece al módulo `MOD-1` |
+| **escenario** | Entre las 10pm y las 7am no se envía ningún esfuerzo: el tick no genera y todo índice que fuese a caer en esa franja se desplaza fuera |
+| **dado** | Dado el tiempo global discreto `indice_global` y una franja horaria de reloj de pared que va de las 22:00 (inclusive) a las 07:00 (exclusive) |
+| **cuando** | Cuando se activa el workflow de cada 10 minutos; y cuando se va a generar un nuevo `indice_siguiente_esfuerzo` para un nodo o para un grafo |
+| **especificación** | Cuando se activa el workflow cada 10 minutos se comprueba que el índice no corresponda al rango de horas 10pm - 7am. Cuando se va a generar un nuevo `indice_siguiente_esfuerzo` para un nodo o grafo, este se suma 54 UE (9 horas) si es que el `indice_siguiente_esfuerzo` iba a estar en el rango de horas 10pm - 7am |
+| **traza** | T-008.1 … T-008.11 |
+
+### Traza — ESP-008
+
+| índice | ubicación | artefacto | paso |
+|---|---|---|---|
+| T-008.1 | `backend/src/domain/silencio.ts:37` | `enHorasDeSilencio()`: detección del rango, con cruce de medianoche | 1 |
+| T-008.2 | `backend/src/domain/silencio.ts:56` | `desplazarFueraDeSilencio()`: suma de 54 UE al índice que caería dentro | 2 |
+| T-008.3 | `backend/src/domain/silencio.ts:76` | `agendarSiguiente()`: punto único por el que pasa todo agendamiento | 2 |
+| T-008.4 | `backend/src/utils/tiempo.ts:30` | `horaLocal()`: traduce el índice global a hora de reloj de pared | 1 |
+| T-008.5 | `backend/src/config/env.ts:71` | Configuración de la ventana: zona, hora de inicio y de fin, desplazamiento | 1, 2 |
+| T-008.6 | `backend/src/config/env.ts:103` | `validarConfigSilencio()`: falla al arrancar si la zona u horas son inválidas | 1 |
+| T-008.7 | `backend/src/services/scheduler.service.ts:46` | Compuerta del tick: en silencio no se selecciona ni encola nada | 1 |
+| T-008.8 | `backend/src/services/scheduler.service.ts:90` | Reagendamiento del grafo mediante `agendarSiguiente` | 2 |
+| T-008.9 | `backend/src/services/despacho.service.ts:45` | Compuerta del worker: no entrega items en cola durante la ventana (DEC-017) | 1 |
+| T-008.10 | `backend/src/services/despacho.service.ts:135` | Reagendamiento del nodo al confirmar el envío | 2 |
+| T-008.11 | `backend/src/services/nodos.service.ts:34` | Índice inicial del nodo recién registrado | 2 |
+| T-008.V1 | `backend/test/silencio.test.ts` | 13 pruebas: fronteras, cruce de medianoche, hora local, suma única, ventana ancha |
+| T-008.V2 | `backend/test/silencio-tick.test.ts` | 5 pruebas contra base real: compuertas del tick y del worker, archivado durante el silencio |
+| T-008.V3 | `space_repetition/02_tick_espaciado.json` | El workflow refleja `en_silencio` en el resumen de la ejecución |
+| T-008.V4 | `deploy/scripts/verificar_despliegue.sh` | Imprime la ventana y la hora local que el sistema cree que es |
+
+---
+
 # Anexo A — Trazabilidad complementaria de las descripciones
 
 Las siete especificaciones de la Sección 2 son las únicas que responden a los
@@ -512,20 +557,21 @@ artefacto asignado.
 
 | id | descripción | origen en ASI.md | feature | traza |
 |---|---|---|---|---|
-| DSC-001 | Unidad de espaciado: 1 UE = 600 s | feature 1 | `F1` | `backend/src/config/env.ts:70` `SEGUNDOS_POR_UE`; `deploy/postgres/init/002_funciones_triggers.sql:9` |
+| DSC-001 | Unidad de espaciado: 1 UE = 600 s | feature 1 | `F1` | `backend/src/config/env.ts:71` `SEGUNDOS_POR_UE`; `deploy/postgres/init/002_funciones_triggers.sql:9` |
 | DSC-002 | Estructura del mensaje de registro `[nodo_esfuerzo] \| [nodo_crudo] \| [fecha_limite]` | feature 1.1 | `F1.1` | `backend/src/domain/parser.ts:99` `parsearNodo()`; `backend/test/dominio.test.ts:93` |
 | DSC-003 | Registrar un nodo es la operación por defecto del bot | feature 1.1 / procedimiento 1 | `F1.1`, `MOD-1` | `backend/src/domain/parser.ts:29` `detectarComando()`; `backend/src/services/telegram.service.ts:96` rama `default` |
 | DSC-004 | Nodo temporal: genera esfuerzos hasta la fecha límite y luego se archiva | feature 1.1 | `F1.1` | `deploy/postgres/init/001_schema.sql:118` columna generada `es_temporal`; `backend/src/repositories/nodos.repo.ts:77` |
 | DSC-005 | Los nodos eliminados o inactivos quedan archivados con baja lógica | feature 1.1 | `F1.1`, `F2.3` | `backend/src/repositories/nodos.repo.ts:223` `marcarBajaLogica()` |
 | DSC-006 | Ciclo de vida en 4 etapas con sus rangos y umbrales | feature 1.1 | `F1.1` | `backend/src/domain/fases.ts:24` `FASES`; `deploy/postgres/init/001_schema.sql:57` `fases_config` |
 | DSC-007 | El nodo temporal en cuarta etapa no entra al grafo y sigue generando 54–66 UE | feature 1.1 | `F1.1`, `F1.2` | `backend/src/domain/fases.ts:88` `generaEsfuerzosPropios()`; `backend/test/dominio.test.ts:65` |
+| DSC-007b | No se envían esfuerzos entre las 10pm y las 7am | feature 1.3 | `F1.3`, `MOD-1` | `backend/src/domain/silencio.ts`; `backend/src/services/despacho.service.ts:45`; `backend/test/silencio-tick.test.ts` |
 | DSC-008 | Grafo como adjacency list: `parent_id`, `enlace_contenido`, `contenido` | feature 2 / 2.1 | `F2`, `F2.1` | `deploy/postgres/init/001_schema.sql:100` tabla `nodos`; `deploy/postgres/init/002_funciones_triggers.sql:174` `v_grafo_adyacencia` |
 | DSC-009 | `is_leaf` mantenido por triggers para alimentar `nodos_hojas` en O(1) | feature 2.1 | `F2.1` | `deploy/postgres/init/002_funciones_triggers.sql:121` `fn_sync_is_leaf()` |
 | DSC-010 | Jerarquía validada con índices sobre `parent_id` y CTEs recursivas | feature 2.1 | `F2.1` | `deploy/postgres/init/001_schema.sql:150` `ix_nodos_parent`; `backend/src/repositories/nodos.repo.ts:177` |
 | DSC-011 | Interfaz reactiva de creación, enlace, navegación visual y evaluación | feature 2.5 | `F2.5` | `webapp/src/pages/Grafos.tsx`; `webapp/src/components/Lienzo.tsx` |
 | DSC-012 | Panel integrado de descarga y calificación de evaluaciones dominicales | feature 2.5 | `F2.5`, `MOD-2` | `webapp/src/pages/Evaluaciones.tsx`; `backend/src/routes/evaluaciones.routes.ts:21` |
 | DSC-013 | Recepción del mensaje de Telegram por el webhook del servicio de workflows | procedimiento 1, paso 1 | `MOD-1` | `space_repetition/01_ingesta_telegram.json`; `backend/src/routes/internal.routes.ts:18` |
-| DSC-014 | Guardado del nodo con `fase_1`, `conteo_esfuerzo = 0`, `activo`, `indice_global + random(2,6)` | procedimiento 1, paso 2 | `F1.1`, `MOD-1` | `backend/src/services/nodos.service.ts:21` `registrar()`; `backend/test/integracion.test.ts:50` |
+| DSC-014 | Guardado del nodo con `fase_1`, `conteo_esfuerzo = 0`, `activo`, `indice_global + random(2,6)` | procedimiento 1, paso 2 | `F1.1`, `MOD-1` | `backend/src/services/nodos.service.ts:22` `registrar()`; `backend/test/integracion.test.ts:50` |
 | DSC-015 | Respuesta explicativa ante discordancia sintáctica y fin del flujo | procedimiento 1, paso 2 | `MOD-1` | `backend/src/services/telegram.service.ts:101` `catch (ErrorDominio)`; `backend/test/integracion.test.ts:68` |
 | DSC-016 | Tick cronometrado cada 10 min que calcula `indice_global` | procedimiento "recibiendo esfuerzos", paso 1 | `F1.2`, `MOD-1` | `space_repetition/02_tick_espaciado.json`; `backend/src/services/scheduler.service.ts:32` |
 | DSC-017 | Cola `effort_dispatch_queue` con registros priorizados | procedimiento "recibiendo esfuerzos", paso 2 | `F1.2` | `deploy/postgres/init/001_schema.sql:160`; `backend/src/repositories/cola.repo.ts` |
@@ -539,10 +585,10 @@ artefacto asignado.
 | DSC-025 | Inserción masiva, consulta de nodos y reparación de enlaces | procedimiento "terminal", paso 2 | — | `cli/src/index.ts:87` `import`; `cli/src/index.ts:176` `link`; `backend/src/routes/nodos.routes.ts:47` lote |
 | DSC-026 | Comando `undo` a nivel log de transacciones | procedimiento "terminal", paso 2 | — | `backend/src/services/undo.service.ts:12`; `deploy/postgres/init/001_schema.sql:289` `transacciones_log` |
 | DSC-027 | Domingo 00:00 UTC: hasta 20 nodos aleatorios de `fase_3` o `fase_4` | caso de uso 2, paso 1 | `MOD-2` | `space_repetition/04_evaluacion_dominical.json`; `backend/src/repositories/nodos.repo.ts:267` |
-| DSC-028 | Cuestionario con `nodo_esfuerzo` como premisa contra `nodo_crudo` y enlaces jerárquicos | caso de uso 2, paso 1 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:18` `generarSemanal()` |
+| DSC-028 | Cuestionario con `nodo_esfuerzo` como premisa contra `nodo_crudo` y enlaces jerárquicos | caso de uso 2, paso 1 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:19` `generarSemanal()` |
 | DSC-029 | Ejecución en la web o descarga del formato offline | caso de uso 2, paso 2 | `MOD-2`, `F2.5` | `backend/src/services/evaluaciones.service.ts:139` `exportarTexto()`; `webapp/src/pages/Evaluaciones.tsx:70` |
-| DSC-030 | Autocalificación acierto/fallo | caso de uso 2, paso 2 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:91` `calificar()` |
-| DSC-031 | Métrica histórica de retención y ajuste del scheduling de los fallidos | caso de uso 2, paso 2 | `MOD-2` | `deploy/postgres/init/001_schema.sql:239` `retencion_historico`; `backend/src/services/evaluaciones.service.ts:129` `degradar()` — ver DEC-005 |
+| DSC-030 | Autocalificación acierto/fallo | caso de uso 2, paso 2 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:92` `calificar()` |
+| DSC-031 | Métrica histórica de retención y ajuste del scheduling de los fallidos | caso de uso 2, paso 2 | `MOD-2` | `deploy/postgres/init/001_schema.sql:239` `retencion_historico`; `backend/src/services/evaluaciones.service.ts:130` `degradar()` — ver DEC-005 |
 | DSC-032 | Registro de oportunidades con `[situacion]` y `[observacion]` | caso de uso 3, paso 1 | `MOD-3` | `backend/src/services/mejoras.service.ts:14`; `webapp/src/pages/Mejoras.tsx` |
 | DSC-033 | Vinculación de múltiples observaciones bajo una solución formal | caso de uso 3, paso 2 | `MOD-3` | `backend/src/repositories/mejoras.repo.ts:55` `vincularOportunidades()` |
 | DSC-034 | Ciclo de vida Backlog / En Progreso / Completado | caso de uso 3, paso 3 | `MOD-3` | `backend/src/services/mejoras.service.ts:61` `cambiarEstado()`; `webapp/src/pages/Mejoras.tsx:5` tablero |
@@ -574,3 +620,8 @@ resueltas y justificadas en [`docs/decisiones.md`](docs/decisiones.md):
 | DEC-013 alcance del comando `undo` | DSC-026 |
 | DEC-014 autenticación y aislamiento de la superficie interna | DSC-024, DSC-039 |
 | DEC-015 ausencia de GraphQL | DSC-035 |
+| DEC-016 desplazamiento aplicado en bucle | ESP-008 |
+| DEC-017 el worker también respeta el silencio | ESP-008, DSC-007b, DSC-018 |
+| DEC-018 el archivado sigue durante el silencio | ESP-008, DSC-004 |
+| DEC-019 la ventana es hora local | ESP-008 |
+| DEC-020 superficie de seguridad reducida | DSC-024, DSC-035, DSC-039 |

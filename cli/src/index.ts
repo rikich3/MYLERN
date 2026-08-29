@@ -7,11 +7,13 @@
  * nivel log de transacciones.
  */
 import { readFile } from 'node:fs/promises';
-import { api, guardarConfig } from './api.js';
+import { createInterface } from 'node:readline/promises';
+import { api, guardarConfig, iniciarSesion } from './api.js';
 
 const AYUDA = `mylern-cli -- cliente de terminal de MILERN
 
-  config <url> <token>              guarda credenciales en ~/.config/mylern/config.json
+  login <url> [correo]              inicia sesion con correo y contrasena
+  config <url> <token>              guarda un API Token ya emitido
   add "<esfuerzo> | <crudo> | <fecha>"   registra un nodo
   import <archivo>                  insercion masiva (una linea por nodo)
   ls [--fase X] [--q texto] [--limite N]   lista nodos
@@ -64,6 +66,22 @@ async function main(): Promise<void> {
     case 'help': case '--help': case '-h':
       process.stdout.write(AYUDA);
       return;
+
+    case 'login': {
+      const [url, correoArg] = pos;
+      if (!url) throw new Error('Uso: mylern-cli login <url> [correo]');
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        const correo = correoArg ?? (await rl.question('correo: '));
+        // La contrasena se pide por stdin: no queda en el historial del shell.
+        const password = await rl.question('contrasena: ');
+        await iniciarSesion(url, correo.trim(), password);
+      } finally {
+        rl.close();
+      }
+      console.log('sesion iniciada');
+      return;
+    }
 
     case 'config': {
       const [url, token] = pos;

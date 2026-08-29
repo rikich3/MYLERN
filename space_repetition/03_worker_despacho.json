@@ -1,10 +1,11 @@
 {
   "name": "MILERN 03 - Worker de despacho rate-limited",
   "meta": {
-    "descripcion": "Worker que procesa la cola effort_dispatch_queue. Se ejecuta cada minuto: el backend entrega como maximo un esfuerzo por invocacion y no mas de 10 por ventana de 1 UE, logrando el espaciado uniforme de 1 mensaje por minuto hacia el chat de Telegram.",
+    "descripcion": "Worker que procesa la cola effort_dispatch_queue. Se ejecuta cada minuto: el backend entrega como maximo un esfuerzo por invocacion y no mas de 10 por ventana de 1 UE, logrando el espaciado uniforme de 1 mensaje por minuto hacia el chat de Telegram. Durante las horas de silencio el backend no entrega ningun item, ni siquiera los que quedaron en cola antes de las 22:00.",
     "especificaciones": [
       "PROC-RECIBIR-ESF",
-      "LOG-GEN-NODO"
+      "LOG-GEN-NODO",
+      "LOG-SILENCIO"
     ],
     "etiquetas": [
       "milern",
@@ -103,7 +104,7 @@
         -120,
         0
       ],
-      "notes": "Rama falsa: cola vacia, limite de ventana alcanzado o espaciado no cumplido. Sin item no se llama a la API de Telegram."
+      "notes": "Rama falsa: cola vacia, limite de ventana alcanzado, espaciado no cumplido u horas de silencio (motivo=\"horas_silencio\"). Sin item no se llama a la API de Telegram."
     },
     {
       "parameters": {

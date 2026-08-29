@@ -322,3 +322,120 @@ adelante hace falta, se monta sobre la misma capa de servicios sin tocar el
 dominio.
 
 **Dónde.** `backend/src/routes/`.
+
+---
+
+## DEC-016 — El desplazamiento de 54 UE se aplica en bucle, no una sola vez
+
+**Qué dice el ASI.** *"cuando se va a generar un nuevo `indice_siguiente_esfuerzo`
+para un nodo o grafo este se suma 54 UE (9 horas) si es que el
+`indice_siguiente_esfuerzo` iba a estar en el rango de horas 10pm - 7am"*.
+
+**Decisión.** Se suma el desplazamiento **mientras** el índice siga cayendo en la
+ventana, no exactamente una vez.
+
+**Por qué.** Con la configuración del requisito las dos formas son idénticas: la
+ventana 22:00→07:00 dura 9 horas y el desplazamiento son 9 horas, así que
+cualquier punto de la ventana escapa con **una sola suma** —está comprobado
+recorriendo las 54 UE de la ventana una por una en
+`backend/test/silencio.test.ts`. El bucle solo actúa si alguien configura una
+ventana más ancha que el salto (por ejemplo 20:00→08:00, 12 horas), caso en el
+que una única suma dejaría el esfuerzo todavía de madrugada y el requisito se
+incumpliría en silencio. Es un superconjunto que se reduce a la especificación
+literal con los valores por defecto.
+
+La frontera es cerrada por la izquierda y abierta por la derecha —a las 22:00 ya
+hay silencio, a las 07:00 ya no— para que las dos fronteras no se solapen y la
+suma de 9 horas siempre caiga fuera.
+
+**Dónde.** `backend/src/domain/silencio.ts` (`desplazarFueraDeSilencio`).
+
+---
+
+## DEC-017 — El worker de despacho también respeta las horas de silencio
+
+**Qué dice el ASI.** La descripción es *"No se va a enviar esfuerzos desde las
+10pm hasta las 7am"*. La lógica que la acompaña cubre dos puntos: el tick de 10
+minutos y el cálculo del siguiente índice.
+
+**Decisión.** Además de esos dos puntos, el worker que entrega mensajes a
+Telegram comprueba la ventana antes de soltar un item.
+
+**Por qué.** Los dos puntos de la lógica evitan *generar* esfuerzos, pero no
+cubren los que ya estaban en la cola. La cola admite hasta 10 items por UE y se
+drena a razón de uno por minuto: un lote encolado a las 21:59 tardaría hasta diez
+minutos en salir y varios mensajes llegarían pasadas las 22:00. Sin esta tercera
+comprobación, el requisito —que habla de **enviar**, no de generar— se
+incumpliría en el caso más habitual, justo en la frontera.
+
+Los items no se descartan: quedan en `pendiente` y salen a partir de las 07:00.
+
+**Dónde.** `backend/src/services/despacho.service.ts` (`reclamarSiguiente`,
+motivo `horas_silencio`).
+
+---
+
+## DEC-018 — El archivado de vencidos sigue ocurriendo durante el silencio
+
+**Qué dice el ASI.** *"cuando se activa el workflow cada 10 minutos se comprueba
+que el indice no corresponda al rango de horas 10pm - 7am"*.
+
+**Decisión.** Durante la ventana el tick no selecciona candidatos ni encola nada,
+pero sí archiva los nodos temporales cuya fecha límite venció.
+
+**Por qué.** Archivar no es enviar. Aplazarlo nueve horas dejaría nodos vencidos
+marcados como activos toda la noche, y el primer tick de la mañana enviaría
+esfuerzos de nodos que debieron archivarse. El requisito busca no molestar de
+madrugada, no congelar la coherencia de los datos.
+
+**Dónde.** `backend/src/services/scheduler.service.ts` (`ejecutarTick`).
+
+---
+
+## DEC-019 — La ventana es hora local, y la zona horaria es obligatoria
+
+**Qué dice el ASI.** Habla de "10pm" y "7am" sin mencionar zona horaria. El resto
+del sistema trabaja en UTC, porque el `indice_global` deriva del epoch Unix.
+
+**Decisión.** La ventana se evalúa en la zona horaria de `ZONA_HORARIA`
+(identificador IANA). El valor por defecto del código es `UTC`, pero
+`.env.example` viene con `America/Lima` y un aviso.
+
+**Por qué.** "10pm" es una hora de reloj de pared: se refiere a cuándo el usuario
+se va a dormir, no a un instante UTC. Con `ZONA_HORARIA=UTC` en un huso UTC-5 el
+silencio caería entre las 17:00 y las 02:00 locales: dejaría de enviar por la
+tarde y seguiría enviando de madrugada, exactamente lo contrario de lo pedido.
+
+Como un valor equivocado no produce ningún error visible —solo mensajes a
+deshora— hay dos salvaguardas: el backend **valida la zona al arrancar** y
+rechaza arrancar si no la reconoce, y `verificar_despliegue.sh` imprime la hora
+local que el sistema cree que es, para poder contrastarla con el reloj propio.
+
+**Dónde.** `backend/src/config/env.ts` (`validarConfigSilencio`),
+`backend/src/utils/tiempo.ts` (`horaLocal`),
+`deploy/scripts/verificar_despliegue.sh`.
+
+---
+
+## DEC-020 — Superficie de seguridad reducida para un despliegue personal
+
+**Contexto.** Un solo usuario, VPS de Oracle, Nginx Proxy Manager y Cloudflare
+delante.
+
+**Decisión.** Se apagan por defecto el secreto compartido de
+`/api/v1/internal/*` y el limitador de caudal; el contenedor 05 pasa a un perfil
+opcional y la gestión de certificados se delega en Cloudflare y NPM. Nada se
+elimina del código: todo se reactiva con una variable o un perfil.
+
+**Por qué.** Cada una de esas medidas protege de un escenario que aquí no se da
+—terceros en la red, clientes hostiles, un proxy propio que termina TLS— y a
+cambio añade valores que gestionar y vías de fallo. Mantenerlas apagadas pero
+presentes conserva la reversibilidad sin cobrar el coste operativo.
+
+**Lo que no se tocó**, porque sí protege de algo real: el ingreso de la app web
+(está publicada en internet), las credenciales de n8n (guarda el token del bot),
+`N8N_ENCRYPTION_KEY` (si no, ese token queda en claro en los respaldos) y la
+publicación de puertos únicamente en `127.0.0.1`.
+
+**Dónde.** `docs/seguridad_removida.md` desarrolla cada punto: de qué protege,
+por qué se retira y cuándo recuperarla.

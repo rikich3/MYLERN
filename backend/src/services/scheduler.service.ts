@@ -4,7 +4,8 @@ import * as grafosRepo from '../repositories/grafos.repo.js';
 import * as colaRepo from '../repositories/cola.repo.js';
 import { generarEsfuerzo } from '../domain/esfuerzos.js';
 import { RANGO_GRAFO } from '../domain/fases.js';
-import { deltaUE, indiceGlobal } from '../utils/tiempo.js';
+import { agendarSiguiente, enHorasDeSilencio } from '../domain/silencio.js';
+import { indiceGlobal } from '../utils/tiempo.js';
 
 export interface ResultadoTick {
   indice_global: number;
@@ -12,6 +13,8 @@ export interface ResultadoTick {
   nodos_encolados: number;
   grafos_encolados: number;
   grafos_sin_hojas: number;
+  /** [feature 1.3] Verdadero cuando el tick cayo dentro de las horas de silencio. */
+  en_silencio: boolean;
 }
 
 /**
@@ -28,6 +31,10 @@ export interface ResultadoTick {
  * Nota de diseno: el `indice_siguiente_esfuerzo` de un NODO se recalcula al
  * confirmarse el envio (no aqui), tal como indica la especificacion. El de un
  * GRAFO se recalcula en este punto, tambien segun la especificacion.
+ *
+ * [LOG-SILENCIO paso 1] Si el indice cae en el rango 10pm - 7am no se genera
+ * ningun esfuerzo. El archivado de nodos vencidos si se ejecuta: archivar no es
+ * enviar, y aplazarlo nueve horas solo dejaria datos rancios (DEC-017).
  */
 export async function ejecutarTick(): Promise<ResultadoTick> {
   const ig = indiceGlobal();
@@ -35,6 +42,17 @@ export async function ejecutarTick(): Promise<ResultadoTick> {
   return enTransaccion(async (cx) => {
     // 1. Nodos temporales vencidos -> baja logica / archivado.
     const archivados = await nodosRepo.archivarVencidos(cx, ig);
+
+    if (enHorasDeSilencio(ig)) {
+      return {
+        indice_global: ig,
+        nodos_archivados: archivados.length,
+        nodos_encolados: 0,
+        grafos_encolados: 0,
+        grafos_sin_hojas: 0,
+        en_silencio: true,
+      };
+    }
 
     // 2. Nodos candidatos -> cola de despacho.
     const candidatos = await nodosRepo.candidatos(cx, ig);
@@ -69,7 +87,7 @@ export async function ejecutarTick(): Promise<ResultadoTick> {
         grafosSinHojas++;
         await grafosRepo.avanzarRoundRobin(
           cx, grafo.id, grafo.cursor_rr,
-          ig + deltaUE(RANGO_GRAFO.min, RANGO_GRAFO.max),
+          agendarSiguiente(ig, RANGO_GRAFO.min, RANGO_GRAFO.max),
         );
         continue;
       }
@@ -88,7 +106,7 @@ export async function ejecutarTick(): Promise<ResultadoTick> {
       await grafosRepo.avanzarRoundRobin(
         cx, grafo.id,
         grafo.cursor_rr + 1,
-        ig + deltaUE(RANGO_GRAFO.min, RANGO_GRAFO.max),
+        agendarSiguiente(ig, RANGO_GRAFO.min, RANGO_GRAFO.max),
       );
     }
 
@@ -98,6 +116,7 @@ export async function ejecutarTick(): Promise<ResultadoTick> {
       nodos_encolados: nodosEncolados,
       grafos_encolados: grafosEncolados,
       grafos_sin_hojas: grafosSinHojas,
+      en_silencio: false,
     };
   });
 }

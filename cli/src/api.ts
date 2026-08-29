@@ -11,6 +11,24 @@ export interface Config {
   token: string;
 }
 
+/**
+ * Autenticacion con correo y contrasena. Evita el paso aparte de emitir un API
+ * Token para un despliegue de un solo usuario; los API Token siguen siendo
+ * preferibles para automatizar desde otra maquina.
+ */
+export async function iniciarSesion(base_url: string, email: string, password: string): Promise<void> {
+  const res = await fetch(`${base_url.replace(/\/$/, '')}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    throw new Error(`no se pudo iniciar sesion (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+  const { token } = (await res.json()) as { token: string };
+  await guardarConfig({ base_url, token });
+}
+
 const RUTA_CONFIG = process.env.MYLERN_CONFIG ?? join(homedir(), '.config', 'mylern', 'config.json');
 
 export async function cargarConfig(): Promise<Config> {

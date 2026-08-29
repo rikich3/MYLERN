@@ -69,6 +69,12 @@ func generar_esfuerzo(index, const &nodos_hojas):
 -> Se inserta la solicitud de esfuerzo en la cola de despacho transaccional.
 -> Se actualiza el cursor Round Robin del grafo y se agenda su nuevo `indice_siguiente_esfuerzo` sumando un valor pseudoaleatorio entre 54 y 66 UE.
 
+- feature 1.3: horas de silencio
+* No se va a enviar esfuerzos desde las 10pm hasta las 7am.
+* La logica con la que se implementa este requisito es la siguiente:
+-> cuando se activa el workflow cada 10 minutos se comprueba que el indice no corresponda al rango de horas 10pm - 7am
+-> cuando se va a generar un nuevo indice_siguiente_esfuerzo para un nodo o grafo este se suma 54 UE (9 horas) si es que el indice_siguiente_esfuerzo iba a estar en el rango de horas 10pm - 7am
+
 - feature 2: grafo de conocimiento
 Estructura jerarquica y de red para organizar el conocimiento en memoria de largo plazo.
 Un nodo que forma parte de un grafo de conocimiento contiene los siguientes campos:

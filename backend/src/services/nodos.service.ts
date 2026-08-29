@@ -2,7 +2,8 @@ import { enTransaccion, pool, type Ejecutor } from '../db/pool.js';
 import * as nodosRepo from '../repositories/nodos.repo.js';
 import * as auditoria from '../repositories/auditoria.repo.js';
 import { FASES } from '../domain/fases.js';
-import { deltaUE, fechaLimiteAIndice, indiceGlobal } from '../utils/tiempo.js';
+import { agendarSiguiente } from '../domain/silencio.js';
+import { fechaLimiteAIndice, indiceGlobal } from '../utils/tiempo.js';
 import { noEncontrado } from '../utils/errors.js';
 import type { Nodo } from '../domain/tipos.js';
 import type { OrigenTx } from '../repositories/auditoria.repo.js';
@@ -30,7 +31,7 @@ export async function registrar(
       nodo_esfuerzo: entrada.nodo_esfuerzo,
       nodo_crudo: entrada.nodo_crudo,
       indice_fecha_limite: entrada.fecha_limite === null ? null : fechaLimiteAIndice(entrada.fecha_limite),
-      indice_siguiente_esfuerzo: ig + deltaUE(FASES.fase_1.min, FASES.fase_1.max),
+      indice_siguiente_esfuerzo: agendarSiguiente(ig, FASES.fase_1.min, FASES.fase_1.max),
     });
     await auditoria.registrar(cx, {
       usuario_id: usuarioId, origen, operacion: 'crear', entidad: 'nodo',
@@ -54,7 +55,7 @@ export async function registrarLote(
         nodo_esfuerzo: e.nodo_esfuerzo,
         nodo_crudo: e.nodo_crudo,
         indice_fecha_limite: e.fecha_limite === null ? null : fechaLimiteAIndice(e.fecha_limite),
-        indice_siguiente_esfuerzo: ig + deltaUE(FASES.fase_1.min, FASES.fase_1.max),
+        indice_siguiente_esfuerzo: agendarSiguiente(ig, FASES.fase_1.min, FASES.fase_1.max),
       }));
     }
     await auditoria.registrar(cx, {
