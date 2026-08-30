@@ -103,10 +103,18 @@ test('el separador puede escaparse como \\| dentro del contenido', () => {
   assert.equal(r.fecha_limite, '2026-12-31');
 });
 
-test('el nodo_crudo y la fecha limite son opcionales', () => {
-  const r = parsearNodo('Solo el frente');
-  assert.equal(r.nodo_crudo, null);
+test('la fecha limite es opcional; el nodo_crudo no', () => {
+  const r = parsearNodo('Teorema de Bayes | Formula que invierte la condicional');
+  assert.equal(r.nodo_crudo, 'Formula que invierte la condicional');
   assert.equal(r.fecha_limite, null);
+});
+
+test('rechaza un mensaje suelto sin el segmento de nodo_crudo', () => {
+  assert.throws(() => parsearNodo('hola'), (e: ErrorDominio) => e.codigo === 'FORMATO_INVALIDO');
+});
+
+test('rechaza un nodo_crudo vacio', () => {
+  assert.throws(() => parsearNodo('frente | '), (e: ErrorDominio) => e.codigo === 'CRUDO_VACIO');
 });
 
 test('rechaza mas de tres segmentos', () => {

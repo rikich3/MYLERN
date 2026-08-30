@@ -31,7 +31,7 @@ const AYUDA = [
   '',
   'Registrar un nodo (operacion por defecto, sin comando):',
   '  [nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]',
-  '  Los dos ultimos segmentos son opcionales.',
+  '  Los dos primeros segmentos son obligatorios; la fecha limite es opcional.',
   '  Ej: Teorema de Bayes | Formula que invierte la condicional | 2026-12-31',
   '  Si el texto contiene "|", escapalo como \\| .',
   '',
@@ -42,7 +42,6 @@ const AYUDA = [
   '  /grafos         grafos de conocimiento y sus hojas',
   '  /evaluacion     estado de la evaluacion de la semana',
   '  /mejora [situacion] | [observacion]   registra una oportunidad de mejora',
-  '  /vincular <codigo>  asocia este chat a una cuenta web',
   '  /ayuda          muestra esta ayuda',
 ].join('\n');
 
@@ -62,8 +61,6 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
     return { chat_id: chatId, texto: 'Solo se admiten mensajes de texto.', ok: false };
   }
 
-  const usuario = await usuariosRepo.porChatTelegram(pool, chatId);
-
   try {
     const comando = detectarComando(texto);
 
@@ -71,16 +68,13 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
       return { chat_id: chatId, texto: AYUDA, ok: true };
     }
 
-    if (comando?.comando === '/vincular') {
-      return await vincular(chatId, comando.argumento);
-    }
-
+    // La resolucion es perezosa a proposito: la ayuda la ve cualquiera, pero un
+    // chat solo se adopta cuando hace trabajo real (registrar un nodo, listar).
+    const usuario = await resolverUsuario(chatId);
     if (!usuario) {
       return {
         chat_id: chatId,
-        texto:
-          'Este chat no esta vinculado a ninguna cuenta MILERN.\n' +
-          'Crea tu cuenta en la app web y ejecuta aqui:  /vincular <tu-codigo>',
+        texto: 'Este chat no corresponde a la cuenta de esta instancia de MILERN.',
         ok: false,
       };
     }
@@ -171,16 +165,27 @@ async function mejora(chatId: string, usuarioId: string, argumento: string): Pro
 }
 
 /**
- * Vinculacion chat <-> cuenta. El codigo es el UUID del usuario, visible en la
- * app web; asocia el chat de Telegram a la cuenta para poder recibir esfuerzos.
+ * Cuenta a la que pertenece un chat.
+ *
+ * El ASI da por hecha la relacion chat <-> usuario ("un worker [...] enviando
+ * mensajes hacia el chat de Telegram") y no describe ninguna ceremonia para
+ * establecerla: registrar un nodo debe bastar para empezar a recibir esfuerzos.
+ * MILERN es un despliegue de un solo usuario, asi que la cuenta unica adopta al
+ * primer chat que le habla. A partir de ahi queda ocupada y el bot ignora a
+ * cualquier otro chat, de modo que un tercero que encuentre el bot no puede
+ * escribir en el conocimiento de su duenno.
+ *
+ * En la practica el vinculo ya viene hecho desde el despliegue cuando se define
+ * BOOTSTRAP_TELEGRAM_CHAT_ID (ver bootstrap.ts), y esta ruta no llega a usarse.
  */
-async function vincular(chatId: string, codigo: string): Promise<RespuestaBot> {
-  const uuid = codigo.trim();
-  if (!/^[0-9a-f-]{36}$/i.test(uuid)) {
-    return { chat_id: chatId, texto: 'Uso: /vincular <codigo-de-vinculacion>', ok: false };
-  }
-  const usuario = await usuariosRepo.porId(pool, uuid);
-  if (!usuario) return { chat_id: chatId, texto: 'Codigo de vinculacion no valido.', ok: false };
-  await usuariosRepo.vincularTelegram(pool, usuario.id, chatId);
-  return { chat_id: chatId, texto: `Chat vinculado a ${usuario.email}. Ya recibiras esfuerzos aqui.`, ok: true };
+async function resolverUsuario(chatId: string) {
+  const porChat = await usuariosRepo.porChatTelegram(pool, chatId);
+  if (porChat) return porChat;
+
+  const cuentas = await usuariosRepo.activos(pool);
+  const unica = cuentas.length === 1 ? cuentas[0]! : null;
+  if (!unica || unica.telegram_chat_id !== null) return null;
+
+  await usuariosRepo.vincularTelegram(pool, unica.id, chatId);
+  return { ...unica, telegram_chat_id: chatId };
 }

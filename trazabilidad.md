@@ -559,7 +559,7 @@ artefacto asignado.
 |---|---|---|---|---|
 | DSC-001 | Unidad de espaciado: 1 UE = 600 s | feature 1 | `F1` | `backend/src/config/env.ts:71` `SEGUNDOS_POR_UE`; `deploy/postgres/init/002_funciones_triggers.sql:9` |
 | DSC-002 | Estructura del mensaje de registro `[nodo_esfuerzo] \| [nodo_crudo] \| [fecha_limite]` | feature 1.1 | `F1.1` | `backend/src/domain/parser.ts:99` `parsearNodo()`; `backend/test/dominio.test.ts:93` |
-| DSC-003 | Registrar un nodo es la operación por defecto del bot | feature 1.1 / procedimiento 1 | `F1.1`, `MOD-1` | `backend/src/domain/parser.ts:29` `detectarComando()`; `backend/src/services/telegram.service.ts:96` rama `default` |
+| DSC-003 | Registrar un nodo es la operación por defecto del bot | feature 1.1 / procedimiento 1 | `F1.1`, `MOD-1` | `backend/src/domain/parser.ts:29` `detectarComando()`; `backend/src/services/telegram.service.ts:90` rama `default` |
 | DSC-004 | Nodo temporal: genera esfuerzos hasta la fecha límite y luego se archiva | feature 1.1 | `F1.1` | `deploy/postgres/init/001_schema.sql:118` columna generada `es_temporal`; `backend/src/repositories/nodos.repo.ts:77` |
 | DSC-005 | Los nodos eliminados o inactivos quedan archivados con baja lógica | feature 1.1 | `F1.1`, `F2.3` | `backend/src/repositories/nodos.repo.ts:223` `marcarBajaLogica()` |
 | DSC-006 | Ciclo de vida en 4 etapas con sus rangos y umbrales | feature 1.1 | `F1.1` | `backend/src/domain/fases.ts:24` `FASES`; `deploy/postgres/init/001_schema.sql:57` `fases_config` |
@@ -572,7 +572,7 @@ artefacto asignado.
 | DSC-012 | Panel integrado de descarga y calificación de evaluaciones dominicales | feature 2.5 | `F2.5`, `MOD-2` | `webapp/src/pages/Evaluaciones.tsx`; `backend/src/routes/evaluaciones.routes.ts:21` |
 | DSC-013 | Recepción del mensaje de Telegram por el webhook del servicio de workflows | procedimiento 1, paso 1 | `MOD-1` | `space_repetition/01_ingesta_telegram.json`; `backend/src/routes/internal.routes.ts:18` |
 | DSC-014 | Guardado del nodo con `fase_1`, `conteo_esfuerzo = 0`, `activo`, `indice_global + random(2,6)` | procedimiento 1, paso 2 | `F1.1`, `MOD-1` | `backend/src/services/nodos.service.ts:22` `registrar()`; `backend/test/integracion.test.ts:50` |
-| DSC-015 | Respuesta explicativa ante discordancia sintáctica y fin del flujo | procedimiento 1, paso 2 | `MOD-1` | `backend/src/services/telegram.service.ts:101` `catch (ErrorDominio)`; `backend/test/integracion.test.ts:68` |
+| DSC-015 | Respuesta explicativa ante discordancia sintáctica y fin del flujo | procedimiento 1, paso 2 | `MOD-1` | `backend/src/services/telegram.service.ts:92` `catch (ErrorDominio)`; `backend/test/integracion.test.ts:87`, `:98` |
 | DSC-016 | Tick cronometrado cada 10 min que calcula `indice_global` | procedimiento "recibiendo esfuerzos", paso 1 | `F1.2`, `MOD-1` | `space_repetition/02_tick_espaciado.json`; `backend/src/services/scheduler.service.ts:32` |
 | DSC-017 | Cola `effort_dispatch_queue` con registros priorizados | procedimiento "recibiendo esfuerzos", paso 2 | `F1.2` | `deploy/postgres/init/001_schema.sql:160`; `backend/src/repositories/cola.repo.ts` |
 | DSC-018 | Worker: máximo 10 mensajes por UE, espaciados a 1 por minuto | procedimiento "recibiendo esfuerzos", paso 2 | `F1.2`, `MOD-1` | `backend/src/services/despacho.service.ts:36` `reclamarSiguiente()`; `space_repetition/03_worker_despacho.json`; `backend/test/integracion.test.ts:263` |

@@ -7,7 +7,7 @@ import { ErrorDominio } from '../utils/errors.js';
  */
 export interface NodoParseado {
   nodo_esfuerzo: string;
-  nodo_crudo: string | null;
+  nodo_crudo: string;
   fecha_limite: string | null; // ISO YYYY-MM-DD
 }
 
@@ -18,7 +18,7 @@ export interface ComandoControl {
 
 const COMANDOS = new Set([
   '/start', '/ayuda', '/help', '/nodo', '/listar', '/grafos',
-  '/stats', '/baja', '/mejora', '/evaluacion', '/vincular',
+  '/stats', '/baja', '/mejora', '/evaluacion',
 ]);
 
 /**
@@ -102,7 +102,8 @@ export function parsearNodo(texto: string): NodoParseado {
   if (cuerpo === '') {
     throw new ErrorDominio(
       'MENSAJE_VACIO',
-      'El mensaje esta vacio. Formato esperado: [nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]',
+      'El mensaje esta vacio. Formato esperado: [nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]' +
+        ' (el tercer segmento es opcional).',
       422,
     );
   }
@@ -127,9 +128,30 @@ export function parsearNodo(texto: string): NodoParseado {
     );
   }
 
-  const segundo = partes.length >= 2 ? (partes[1] ?? '') : '';
-  const tercero = partes.length === 3 ? (partes[2] ?? '') : '';
+  // En el formato del ASI la etiqueta <opcionalmente> abre DESPUES de
+  // [nodo_crudo]: lo unico opcional es la fecha limite. Un mensaje suelto sin
+  // separador no es un nodo, es medio nodo (frente de la tarjeta sin reverso),
+  // y la evaluacion dominical necesita el crudo para contrastar la respuesta.
+  if (partes.length < 2) {
+    throw new ErrorDominio(
+      'FORMATO_INVALIDO',
+      'Falta el segundo segmento. El formato es ' +
+        '[nodo_esfuerzo] | [nodo_crudo] y, opcionalmente, | [fecha_limite]. ' +
+        'Si el texto contiene el caracter "|", escapalo como \\| .',
+      422,
+    );
+  }
 
+  const segundo = partes[1] ?? '';
+  if (segundo === '') {
+    throw new ErrorDominio(
+      'CRUDO_VACIO',
+      'El segundo segmento ([nodo_crudo]) es obligatorio y no puede estar vacio.',
+      422,
+    );
+  }
+
+  const tercero = partes.length === 3 ? (partes[2] ?? '') : '';
   if (partes.length === 3 && tercero === '') {
     throw new ErrorDominio(
       'FECHA_VACIA',
@@ -140,7 +162,7 @@ export function parsearNodo(texto: string): NodoParseado {
 
   return {
     nodo_esfuerzo: nodoEsfuerzo,
-    nodo_crudo: segundo === '' ? null : segundo,
+    nodo_crudo: segundo,
     fecha_limite: tercero === '' ? null : normalizarFecha(tercero),
   };
 }

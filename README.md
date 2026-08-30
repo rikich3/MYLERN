@@ -204,4 +204,3 @@ se escapa como `\|`.
 | `/grafos` | grafos y número de hojas |
 | `/evaluacion` | estado de la evaluación semanal |
 | `/mejora [situacion] \| [observacion]` | registra una oportunidad de mejora |
-| `/vincular <codigo>` | asocia el chat a una cuenta web |

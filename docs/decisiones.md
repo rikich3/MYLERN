@@ -192,8 +192,14 @@ válido aunque se añadan más workers.
 [fecha_limite]` y exige validar la integridad del formato, respondiendo con un
 mensaje explicativo ante discordancia sintáctica.
 
-**Decisión.** Se mantiene la regla estricta de 3 segmentos como máximo y se
-admite `\|` para un `|` literal dentro del contenido.
+**Decisión.** Se mantiene la regla estricta de 2 segmentos como mínimo y 3 como
+máximo, y se admite `\|` para un `|` literal dentro del contenido.
+
+En el formato del ASI la etiqueta `<opcionalmente>` abre **después** de
+`[nodo_crudo]`: lo único opcional es la fecha límite. Un mensaje suelto sin
+separador (`hola`) no es un nodo válido — es el frente de la tarjeta sin
+reverso, y la evaluación dominical necesita el crudo para contrastar la
+respuesta (DSC-028).
 
 **Por qué.** El contenido legítimo lleva barras verticales con frecuencia en
 este dominio: `P(A|B)`, notación de conjuntos, tablas. Sin escape, registrar el
@@ -250,20 +256,32 @@ hijos activos es lo que exige el pseudocódigo `eliminar_nodo`, que evalúa
 
 ---
 
-## DEC-012 — Vinculación entre la cuenta web y el chat de Telegram
+## DEC-012 — Cómo sabe el bot a qué cuenta pertenece un chat
 
-**Qué dice el ASI.** Da por supuesto que el sistema sabe a qué chat enviar los
-esfuerzos, pero no describe cómo se establece esa relación.
+**Qué dice el ASI.** Da por supuesta la relación —el worker envía *"hacia el
+chat de Telegram"* del usuario— y no describe ninguna ceremonia para
+establecerla. El comportamiento esperado es que registrar un nodo baste para
+empezar a recibir esfuerzos.
 
-**Decisión.** Comando `/vincular <codigo>` en el bot, donde el código es el UUID
-del usuario, visible en la app web. El chat queda asociado a la cuenta.
+**Decisión.** No hay paso de vinculación. La cuenta única del despliegue adopta
+al primer chat que le habla; a partir de ahí queda ocupada y el bot ignora
+cualquier otro chat. En la práctica el vínculo ya viene hecho desde el
+despliegue vía `BOOTSTRAP_TELEGRAM_CHAT_ID` y esa adopción nunca llega a
+ejecutarse.
 
-**Por qué.** Es el mínimo necesario para que el despacho tenga destinatario, sin
-introducir un flujo de registro adicional. `BOOTSTRAP_TELEGRAM_CHAT_ID` permite
-además dejar el vínculo hecho desde el despliegue en instalaciones de un solo
-usuario.
+**Por qué.** Una versión anterior añadía un comando `/vincular <uuid>` más una
+tarjeta en la app web. Era alcance inventado: nada en el ASI lo pide, y además
+metía un portero que rechazaba los mensajes de un chat no vinculado antes de
+llegar al parser. Que la cuenta quede ocupada tras el primer chat es lo que
+impide que un tercero que encuentre el bot escriba en el conocimiento ajeno;
+sin esa condición, cualquiera podría registrar nodos y leerlos con `/listar`.
 
-**Dónde.** `backend/src/services/telegram.service.ts` (`vincular`).
+**Límite conocido.** Esto solo se sostiene mientras el despliegue sea de un solo
+usuario, que es lo que describe el ASI. Con varias cuentas activas
+`resolverUsuario` devuelve `null` y el bot deja de atender chats nuevos: haría
+falta volver a plantear el problema.
+
+**Dónde.** `backend/src/services/telegram.service.ts` (`resolverUsuario`).
 
 ---
 

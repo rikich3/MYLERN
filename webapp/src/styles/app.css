@@ -54,7 +54,6 @@ code { font-family: ui-monospace, monospace; background: var(--superficie-alta);
 .nav button.activo { color: var(--texto); border-color: var(--acento); background: var(--superficie-alta); }
 
 main { flex: 1; padding: 20px; max-width: 1400px; width: 100%; margin: 0 auto; }
-.pie { padding: 12px 20px; border-top: 1px solid var(--borde); color: var(--tenue); }
 
 .pagina { display: flex; flex-direction: column; gap: 16px; }
 .pagina-cabecera { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

@@ -95,6 +95,17 @@ test('un mensaje mal formado responde explicacion y no crea nodo', async () => {
   assert.equal(despues.length, antes.length);
 });
 
+test('un mensaje suelto sin segmentos no se registra como nodo', async () => {
+  const antes = await nodosRepo.listar(pool, { usuario_id: usuarioId, activo: true });
+  const r = await telegram.procesarUpdate({
+    message: { chat: { id: CHAT }, text: 'hola' },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.texto, /FORMATO_INVALIDO/);
+  const despues = await nodosRepo.listar(pool, { usuario_id: usuarioId, activo: true });
+  assert.equal(despues.length, antes.length);
+});
+
 test('tick -> despacho -> confirmacion incrementa el contador y reagenda', async () => {
   const nodo = await nodosService.registrar(
     usuarioId, { nodo_esfuerzo: 'ciclo completo', nodo_crudo: 'reverso', fecha_limite: null }, 'web',

@@ -5,7 +5,6 @@ import { Nodos } from './pages/Nodos';
 import { Grafos } from './pages/Grafos';
 import { Evaluaciones } from './pages/Evaluaciones';
 import { Mejoras } from './pages/Mejoras';
-import { Revelable } from './components/Revelable';
 
 type Vista = 'nodos' | 'grafos' | 'evaluaciones' | 'mejoras';
 
@@ -19,12 +18,12 @@ const PESTANAS: Array<{ id: Vista; etiqueta: string; tecla: string }> = [
 export function App() {
   const [autenticado, setAutenticado] = useState(sesion.token() !== null);
   const [vista, setVista] = useState<Vista>('nodos');
-  const [perfil, setPerfil] = useState<{ email: string; codigo: string } | null>(null);
+  const [perfil, setPerfil] = useState<{ email: string } | null>(null);
 
   useEffect(() => {
     if (!autenticado) { setPerfil(null); return; }
-    void api<{ perfil: { email: string }; codigo_vinculacion: string }>('GET', '/api/v1/auth/perfil')
-      .then((r) => setPerfil({ email: r.perfil.email, codigo: r.codigo_vinculacion }))
+    void api<{ perfil: { email: string } }>('GET', '/api/v1/auth/perfil')
+      .then((r) => setPerfil({ email: r.perfil.email }))
       .catch(() => setAutenticado(false));
   }, [autenticado]);
 
@@ -67,18 +66,6 @@ export function App() {
         {vista === 'evaluaciones' && <Evaluaciones />}
         {vista === 'mejoras' && <Mejoras />}
       </main>
-
-      <footer className="pie">
-        <Revelable titulo="Conectar Telegram">
-          <p>
-            Abre el bot en Telegram y envia:{' '}
-            <code>/vincular {perfil?.codigo ?? '…'}</code>
-          </p>
-          <p className="ayuda">
-            A partir de la vinculacion, los esfuerzos programados llegan a ese chat.
-          </p>
-        </Revelable>
-      </footer>
     </div>
   );
 }
