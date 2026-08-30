@@ -189,11 +189,19 @@ docker rm -f milern-test-pg    # al terminar
 Registrar un nodo es la operación por defecto: basta escribir el mensaje.
 
 ```
-[nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]
+[nodo_esfuerzo] | [nodo_crudo] <opcional> | [fecha ISO 8601] </opcional>
 ```
 
-Los dos últimos segmentos son opcionales. Si el texto contiene el carácter `|`,
-se escapa como `\|`.
+Los dos primeros segmentos son obligatorios; solo la fecha límite es opcional.
+El `|` es el separador literal de segmentos: si el texto lo contiene, se escapa
+como `\|`.
+
+```
+ISO para la calidad de software _ | ISO 25010 | 2026-12-12
+```
+
+Cualquier mensaje que no siga la estructura se rechaza sin crear nada, y el bot
+responde explicando el formato.
 
 | Comando | Efecto |
 |---|---|

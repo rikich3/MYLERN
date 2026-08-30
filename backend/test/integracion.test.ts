@@ -90,7 +90,7 @@ test('un mensaje mal formado responde explicacion y no crea nodo', async () => {
     message: { chat: { id: CHAT }, text: 'a | b | c | d' },
   });
   assert.equal(r.ok, false);
-  assert.match(r.texto, /FORMATO_INVALIDO/);
+  assert.match(r.texto, /Nodo no se registro/);
   const despues = await nodosRepo.listar(pool, { usuario_id: usuarioId, activo: true });
   assert.equal(despues.length, antes.length);
 });
@@ -101,7 +101,7 @@ test('un mensaje suelto sin segmentos no se registra como nodo', async () => {
     message: { chat: { id: CHAT }, text: 'hola' },
   });
   assert.equal(r.ok, false);
-  assert.match(r.texto, /FORMATO_INVALIDO/);
+  assert.match(r.texto, /Nodo no se registro/);
   const despues = await nodosRepo.listar(pool, { usuario_id: usuarioId, activo: true });
   assert.equal(despues.length, antes.length);
 });

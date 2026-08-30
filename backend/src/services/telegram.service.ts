@@ -30,9 +30,9 @@ const AYUDA = [
   'MILERN -- bot de repeticion espaciada',
   '',
   'Registrar un nodo (operacion por defecto, sin comando):',
-  '  [nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]',
+  '  [nodo_esfuerzo] | [nodo_crudo] <opcional> | [fecha ISO 8601] </opcional>',
   '  Los dos primeros segmentos son obligatorios; la fecha limite es opcional.',
-  '  Ej: Teorema de Bayes | Formula que invierte la condicional | 2026-12-31',
+  '  Ej: ISO para la calidad de software _ | ISO 25010 | 2026-12-12',
   '  Si el texto contiene "|", escapalo como \\| .',
   '',
   'Comandos de control:',
@@ -91,9 +91,10 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
     }
   } catch (e) {
     // "ante discordancia sintactica, se responde con un mensaje explicativo y
-    //  finaliza el flujo".
+    //  finaliza el flujo". El mensaje va tal cual: el codigo del error es para
+    //  las pruebas y el diagnostico, no para quien escribe por Telegram.
     if (e instanceof ErrorDominio) {
-      return { chat_id: chatId, texto: `[${e.codigo}] ${e.message}`, ok: false };
+      return { chat_id: chatId, texto: e.message, ok: false };
     }
     throw e;
   }

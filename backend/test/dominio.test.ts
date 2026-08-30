@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { generarEsfuerzo } from '../src/domain/esfuerzos.js';
 import { evaluarTransicion, FASES, generaEsfuerzosPropios } from '../src/domain/fases.js';
 import { validarAciclicidad } from '../src/domain/aciclicidad.js';
-import { parsearNodo, detectarComando, normalizarFecha } from '../src/domain/parser.js';
+import { ESTRUCTURA_NODO, parsearNodo, detectarComando, normalizarFecha } from '../src/domain/parser.js';
 import { indiceGlobal, deltaUE, fechaLimiteAIndice, semanaISO } from '../src/utils/tiempo.js';
 import { ErrorDominio } from '../src/utils/errors.js';
 import type { NodoHoja } from '../src/domain/tipos.js';
@@ -111,6 +111,22 @@ test('la fecha limite es opcional; el nodo_crudo no', () => {
 
 test('rechaza un mensaje suelto sin el segmento de nodo_crudo', () => {
   assert.throws(() => parsearNodo('hola'), (e: ErrorDominio) => e.codigo === 'FORMATO_INVALIDO');
+});
+
+test('toda discordancia de estructura responde con el mismo texto explicativo', () => {
+  assert.equal(
+    ESTRUCTURA_NODO,
+    'Nodo no se registro. El nodo debe tener esta estructura:\n' +
+      '[nodo_esfuerzo] | [nodo_crudo] <opcional> | [fecha ISO 8601] </opcional>\n' +
+      'Ejemplo: "ISO para la calidad de software _ | ISO 25010 | 2026-12-12"',
+  );
+  for (const malo of ['hola', '', 'frente | ', ' | back', 'a | b | 2026-01-01 | extra']) {
+    assert.throws(
+      () => parsearNodo(malo),
+      (e: ErrorDominio) => e.message.startsWith(ESTRUCTURA_NODO),
+      `no explico la estructura ante: ${JSON.stringify(malo)}`,
+    );
+  }
 });
 
 test('rechaza un nodo_crudo vacio', () => {

@@ -660,7 +660,7 @@ eval [--id <uuid>]       evaluaciones semanales
 | `502 Bad Gateway` | el backend aún no está sano | `docker compose ps`; espera el `(healthy)` |
 | El bot no responde | webhook no registrado o TLS inválido | `getWebhookInfo`; Telegram exige un certificado válido, **no vale el autofirmado** |
 | No llegan esfuerzos | workflows inactivos, o el chat no es el de la cuenta | activa 02 y 03; compara `SELECT telegram_chat_id FROM usuarios` con tu chat real |
-| El bot responde `FORMATO_INVALIDO` | falta el segundo segmento | el mínimo es `[nodo_esfuerzo] \| [nodo_crudo]`; solo la fecha límite es opcional |
+| El bot responde `Nodo no se registro` | el mensaje no sigue la estructura | el mínimo es `[nodo_esfuerzo] \| [nodo_crudo]`; solo la fecha límite es opcional |
 | Llegan menos de 10 por UE | comportamiento correcto | el caudal es 1/min con tope de 10 por UE |
 | `duplicate key` al importar workflows | ya estaban importados | son idempotentes por nombre; revisa con `n8n list:workflow` |
 | El grafo no genera esfuerzos | no tiene nodos hoja | `generar_esfuerzo` devuelve `null` con `nodos_hojas` vacío |

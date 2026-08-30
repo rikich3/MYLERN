@@ -42,6 +42,33 @@ export function detectarComando(texto: string): ComandoControl | null {
   return { comando, argumento: resto.join(' ').trim() };
 }
 
+/**
+ * [procedimiento 1, paso 2] "Se valida la integridad del formato; ante
+ * discordancia sintactica, se responde con un mensaje explicativo y finaliza el
+ * flujo."
+ *
+ * Toda discordancia de estructura responde con este mismo texto: al usuario le
+ * sirve saber cual es el formato correcto, no como se llama internamente el
+ * fallo. El `codigo` del ErrorDominio sigue distinguiendo cada caso para las
+ * pruebas y el diagnostico.
+ *
+ * El caracter `|` es literal del mensaje: es el separador de segmentos, no una
+ * alternativa entre opciones.
+ */
+export const ESTRUCTURA_NODO = [
+  'Nodo no se registro. El nodo debe tener esta estructura:',
+  '[nodo_esfuerzo] | [nodo_crudo] <opcional> | [fecha ISO 8601] </opcional>',
+  'Ejemplo: "ISO para la calidad de software _ | ISO 25010 | 2026-12-12"',
+].join('\n');
+
+/**
+ * El mismo texto mas la pista de escape. Solo se usa cuando llegan demasiados
+ * segmentos, que es el unico caso en el que el usuario puede necesitarla:
+ * escribio un `|` literal dentro del contenido (`P(A|B)`).
+ */
+const ESTRUCTURA_CON_ESCAPE =
+  `${ESTRUCTURA_NODO}\nSi el texto contiene el caracter "|", escapalo como \\| .`;
+
 const RE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const RE_LATAM = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
@@ -60,7 +87,8 @@ export function normalizarFecha(entrada: string): string {
   if (iso === null) {
     throw new ErrorDominio(
       'FECHA_INVALIDA',
-      `Formato de fecha limite invalido: "${entrada}". Usa YYYY-MM-DD o DD/MM/YYYY.`,
+      `Nodo no se registro. Fecha limite invalida: "${entrada}". ` +
+        'Usa el formato ISO 8601: YYYY-MM-DD (por ejemplo 2026-12-12).',
       422,
     );
   }
@@ -71,7 +99,11 @@ export function normalizarFecha(entrada: string): string {
     Number.isNaN(d.getTime()) ||
     d.getUTCFullYear() !== y || d.getUTCMonth() + 1 !== mo || d.getUTCDate() !== da
   ) {
-    throw new ErrorDominio('FECHA_INVALIDA', `La fecha "${entrada}" no existe en el calendario.`, 422);
+    throw new ErrorDominio(
+      'FECHA_INVALIDA',
+      `Nodo no se registro. La fecha "${entrada}" no existe en el calendario.`,
+      422,
+    );
   }
   return iso;
 }
@@ -102,8 +134,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (cuerpo === '') {
     throw new ErrorDominio(
       'MENSAJE_VACIO',
-      'El mensaje esta vacio. Formato esperado: [nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]' +
-        ' (el tercer segmento es opcional).',
+      ESTRUCTURA_NODO,
       422,
     );
   }
@@ -112,9 +143,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (partes.length > 3) {
     throw new ErrorDominio(
       'FORMATO_INVALIDO',
-      `Se recibieron ${partes.length} segmentos; el formato admite como maximo 3: ` +
-        '[nodo_esfuerzo] | [nodo_crudo] | [fecha_limite]. ' +
-        'Si el texto contiene el caracter "|", escapalo como \\| .',
+      ESTRUCTURA_CON_ESCAPE,
       422,
     );
   }
@@ -123,7 +152,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (nodoEsfuerzo === '') {
     throw new ErrorDominio(
       'ESFUERZO_VACIO',
-      'El primer segmento ([nodo_esfuerzo]) es obligatorio y no puede estar vacio.',
+      ESTRUCTURA_NODO,
       422,
     );
   }
@@ -135,9 +164,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (partes.length < 2) {
     throw new ErrorDominio(
       'FORMATO_INVALIDO',
-      'Falta el segundo segmento. El formato es ' +
-        '[nodo_esfuerzo] | [nodo_crudo] y, opcionalmente, | [fecha_limite]. ' +
-        'Si el texto contiene el caracter "|", escapalo como \\| .',
+      ESTRUCTURA_NODO,
       422,
     );
   }
@@ -146,7 +173,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (segundo === '') {
     throw new ErrorDominio(
       'CRUDO_VACIO',
-      'El segundo segmento ([nodo_crudo]) es obligatorio y no puede estar vacio.',
+      ESTRUCTURA_NODO,
       422,
     );
   }
@@ -155,7 +182,7 @@ export function parsearNodo(texto: string): NodoParseado {
   if (partes.length === 3 && tercero === '') {
     throw new ErrorDominio(
       'FECHA_VACIA',
-      'Se declaro un tercer segmento pero la fecha limite esta vacia.',
+      ESTRUCTURA_NODO,
       422,
     );
   }
