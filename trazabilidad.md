@@ -271,7 +271,7 @@ paso 3 "seguimiento y resolucion":
 | ESP-003 | Generación y agendación de esfuerzos de grafos | `LOG-GEN-GRAFO` | lógica | `F1.2` (`F2`, `MOD-1`) | 9 |
 | ESP-004 | Inserción de nodo en el grafo | `PSC-INS-NODO` | pseudocódigo | `F2.2` (`F2.1`, `F2.5`) | 9 |
 | ESP-005 | Validación de aciclicidad en inserción y reparenteo | `LOG-ACICLICIDAD` | lógica | `F2.2` (`F2.4`) | 9 |
-| ESP-006 | Eliminación y desconexión de nodos | `PSC-DEL-NODO` | pseudocódigo | `F2.3` (`F2.4`, `F2.5`) | 9 |
+| ESP-006 | Eliminación y desconexión de nodos | `PSC-DEL-NODO` | pseudocódigo | `F2.3` (`F2.4`, `F2.5`) | 10 |
 | ESP-007 | Protocolo de integridad del grafo | `PRT-INTEGRIDAD` | protocolo | `F2.4` (`F2.1`–`F2.3`) | 10 |
 | ESP-008 | Horas de silencio | `LOG-SILENCIO` | lógica | `F1.3` (`F1.2`, `MOD-1`) | 11 |
 
@@ -457,7 +457,7 @@ paso 3 "seguimiento y resolucion":
 | **dado** | Dado un nodo activo que puede tener padre y descendientes directos |
 | **cuando** | Cuando se invoca `eliminar_nodo(nodo_id)` desde la app web o la CLI |
 | **especificación** | `nodo = obtener_nodo(nodo_id)`; `desvincular_hijos_directos(padre_id = nodo_id)` asignando `parent_id = null` y `enlace_contenido = null` a sus hijos; si `nodo.parent_id != null` y `contar_hijos_activos(nodo.parent_id) == 1`, entonces `actualizar_nodo(nodo.parent_id, is_leaf = verdadero)`; finalmente `marcar_baja_logica(nodo_id)` |
-| **traza** | T-006.1 … T-006.9 |
+| **traza** | T-006.1 … T-006.10 |
 
 ### Traza — ESP-006
 
@@ -472,6 +472,7 @@ paso 3 "seguimiento y resolucion":
 | T-006.7 | `backend/src/routes/grafos.routes.ts:49` | `DELETE /api/v1/nodos/:id`: superficie REST |
 | T-006.8 | `webapp/src/pages/Grafos.tsx:90` | Acción "Dar de baja" con confirmación explícita en el lienzo |
 | T-006.9 | `cli/src/index.ts:194` | Comando `rm`, que informa cuántos hijos quedaron preservados |
+| T-006.10 | `webapp/src/pages/Nodos.tsx:51` | Botón "Eliminar" en la vista de lista de nodos para dar de baja lógica a un nodo |
 | T-006.V1 | `backend/test/integracion.test.ts:187` | Prueba de desvinculación de hijos, retorno del padre a hoja y baja lógica |
 
 ---
@@ -597,6 +598,7 @@ artefacto asignado.
 | DSC-037 | Contenedor 03 — PostgreSQL con soporte CTE y constraints | lista de contenedores | — | `deploy/postgres/init/`; `deploy/docker-compose.yml` servicio `postgres` |
 | DSC-038 | Contenedor 04 — web app SPA de administración visual | lista de contenedores | — | `webapp/`; `deploy/webapp/Dockerfile` |
 | DSC-039 | Contenedor 05 — reverse proxy TLS que aísla la red interna | lista de contenedores | — | `deploy/nginx/`; `deploy/docker-compose.yml` servicio `proxy` |
+| DSC-040 | Vista de nodos con índice global dinámico en vivo, detalles de índice siguiente esfuerzo con hora equivalente America/Lima y botón de eliminación | procedimiento "app web", paso 2 | `F2.5`, `F1.2` | `webapp/src/pages/Nodos.tsx:16` |
 
 ## Decisiones de diseño asociadas
 

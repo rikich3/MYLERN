@@ -19,6 +19,9 @@ subfeatures
 * El usuario envia mensajes al bot para registrar nodos [los nodos representan conocimiento].
 * Registrar un nodo es la operacion por defecto del bot, El mensaje que registra un nodo tiene la siguiente estructura:
 [nodo_esfuerzo] | [nodo_crudo] <opcionalmente> | [fecha_limite] </opcionalmente>
+ejemplos:
+"ISO que se encarga de la calidad de software | ISO 25010 | 2026-12-12"
+"ubicacion areopuerto Arequipa | Zamacola Cerro Colorado"
 * El esfuerzo del nodo es la primera parte del mensaje, que se va a enviar al usuario para implementar la repeticion espaciada. [Concepto o dato que oculta su parte clave, análogo al front de un flashcard].
 * La parte nodo_crudo es el concepto o dato importante en su totalidad [análogo al back de un flashcard].
 * Cuando el usuario registra el nodo con una fecha, significa que el nodo debe generar esfuerzos hasta esa fecha y luego ser archivado. Se clasifica al nodo como "nodo temporal".
@@ -164,7 +167,6 @@ paso 2 "operacion guiada via API":
 - contenedor 02 "workflow n8n mylern": Motor de integracion para webhooks de Telegram y triggers cronometrados.
 - contenedor 03 "base de datos postgres mylern": Motor relacional transaccional con soporte CTE y constraints.
 - contenedor 04 "web app mylern": Servidor de frontend SPA/SSR con cliente web de administracion visual.
-- contenedor 05 "reverse proxy tls": Proxy inverso Nginx que enruta trafico HTTPS y aisla la red interna de Docker.
 
 # caso de uso 2 "EVALUANDO APRENDIZAJE"
 ## procedimiento "tomando evaluacion directa"
