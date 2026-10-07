@@ -1,0 +1,168 @@
+{
+  "name": "Telegram_input",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "6abbdaaa-e824-4f8a-a757-894ad70415d0",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "milern-telegram-ingesta",
+      "credentials": {
+        "telegramApi": {
+          "id": "BRBShQvaEppiHCtg",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "paso 1 'recepcionando un nodo': recepciona el mensaje de Telegram del usuario."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/telegram/update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "response": {
+            "response": {}
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "e5798192-9703-4782-8cdd-54914908a016",
+      "name": "Enrutar al backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "notes": "paso 1: 'Si el mensaje no contiene comandos de control, se enruta al parser de creacion de nodos'. El backend aplica detectarComando() y, por defecto, parsearNodo()."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "da49a374-1010-48ae-afd6-9c6fe5ca7f47",
+      "name": "Responder al usuario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        700,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "BRBShQvaEppiHCtg",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "paso 2 'guardando nodo': confirma el registro o, ante discordancia sintactica, devuelve el mensaje explicativo y finaliza el flujo."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ea5a15f7-e8e1-46ee-80ac-7c8a4c9d60f7",
+              "name": "texto",
+              "value": "={{ $json.texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+              "type": "string"
+            },
+            {
+              "id": "3c465776-7b3a-4de7-8af9-295d43da053a",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "string"
+            },
+            {
+              "id": "3b6cbb81-cf7e-47d0-9627-354f2089814b",
+              "name": "ok",
+              "value": "={{ $json.ok }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        0
+      ],
+      "id": "04ff6746-80a8-4d2f-bdd2-91921095fe4a",
+      "name": "Edit Fields"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Enrutar al backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar al backend": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Responder al usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3fe6a1f7-fbdb-4071-8563-ffc29db1bdc4",
+  "meta": {
+    "instanceId": "6a6564876eb718fe35554f09b5ce2b154b2bc27b3c42fe70d0048b85ea6285e1"
+  },
+  "id": "wsPaI3qkiEJbA2z7",
+  "tags": []
+}

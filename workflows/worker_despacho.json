@@ -1,0 +1,309 @@
+{
+  "name": "worker_despacho",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "a6e7d9f4-f7fc-418f-86a8-9051168430db",
+      "name": "Cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -920,
+        180
+      ],
+      "notes": "paso 2: '...enviando un maximo de 10 mensajes espaciados uniformemente a razon de 1 mensaje por minuto'."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/siguiente",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "3403e7c3-be36-4d82-af30-2805578a4d79",
+      "name": "Reclamar esfuerzo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -700,
+        180
+      ],
+      "notes": "El backend aplica las dos restricciones de caudal (10 por UE y 60 s entre mensajes) y toma el item con FOR UPDATE SKIP LOCKED."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hay-item",
+              "leftValue": "={{ $json.item }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "hay-chat",
+              "leftValue": "={{ $json.item?.chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d49bf205-26eb-47e8-a924-99fc87863b83",
+      "name": "Hay esfuerzo para enviar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        180
+      ],
+      "notes": "Rama falsa: cola vacia, limite de ventana alcanzado, espaciado no cumplido u horas de silencio (motivo=\"horas_silencio\"). Sin item no se llama a la API de Telegram."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.item.chat_id }}",
+        "text": "={{ $json.item.contenido }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "0d841f25-5e90-44ac-a7ce-9b70e713e340",
+      "name": "Enviar esfuerzo a Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -180,
+        80
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "BRBShQvaEppiHCtg",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Contenido del esfuerzo: nodo_esfuerzo para origen 'nodo'; padre + enlace + contenido para origen 'grafo'."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/{{ $('Reclamar esfuerzo').item.json.item.id }}/confirmar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_message_id: $json.message_id ?? null }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "970d8596-50db-4ee1-8268-c6ba939193df",
+      "name": "Confirmar recepcion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "paso 2: 'Se actualizan indices futuros y contadores tras cada confirmacion de recepcion de la API de Telegram'. Aqui el backend incrementa conteo_esfuerzo, evalua la transicion de fase (36/84/108) y recalcula indice_siguiente_esfuerzo."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/{{ $('Reclamar esfuerzo').item.json.item.id }}/fallo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ error: String($json.error?.message ?? $json.error ?? 'fallo de envio en Telegram') }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "ce04c278-0dea-4637-bd69-410e23087249",
+      "name": "Registrar fallo de envio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        160
+      ],
+      "notes": "El item vuelve a 'pendiente' hasta agotar DESPACHO_MAX_INTENTOS; el contador del nodo no se incrementa porque no hubo confirmacion."
+    },
+    {
+      "parameters": {},
+      "id": "42754aef-0b5b-49e0-8fb5-ac5ebd04b2a0",
+      "name": "Sin trabajo",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "61b16506-71c0-4bc5-a399-1da55fd4b7c7",
+              "name": "item.contenido",
+              "value": "={{ $json.item.contenido.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+              "type": "string"
+            },
+            {
+              "id": "2d20b07a-c2e3-4a89-a392-da89fbda2e5b",
+              "name": "item.chat_id",
+              "value": "={{ $json.item.chat_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -340,
+        -60
+      ],
+      "id": "6dbb6d41-466c-4ba0-80ab-2b653ee15239",
+      "name": "Edit Fields"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Reclamar esfuerzo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reclamar esfuerzo": {
+      "main": [
+        [
+          {
+            "node": "Hay esfuerzo para enviar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay esfuerzo para enviar?": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sin trabajo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar esfuerzo a Telegram": {
+      "main": [
+        [
+          {
+            "node": "Confirmar recepcion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar fallo de envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Enviar esfuerzo a Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f77c5c68-23cb-4309-afe5-22e1c709c1db",
+  "meta": {
+    "instanceId": "6a6564876eb718fe35554f09b5ce2b154b2bc27b3c42fe70d0048b85ea6285e1"
+  },
+  "id": "UynC4zgo9btTS0eO",
+  "tags": []
+}

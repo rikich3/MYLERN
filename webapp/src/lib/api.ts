@@ -24,7 +24,8 @@ export async function api<T = unknown>(metodo: string, ruta: string, cuerpo?: un
     body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
   });
 
-  if (res.status === 401) {
+  // Sin token (p. ej. en el login) un 401 son credenciales invalidas, no una sesion vencida.
+  if (res.status === 401 && token) {
     sesion.cerrar();
     throw new ErrorApi('NO_AUTORIZADO', 'Sesion expirada, vuelve a ingresar.', 401);
   }

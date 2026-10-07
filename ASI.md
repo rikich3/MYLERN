@@ -5,7 +5,11 @@ The system has 3 modules:
 - an evaluation technique to measure objective success.
 - a developing system to guide the system to achieve more success.
 
-## lista de features
+# contexto de infraestructura
+Este despliegue está pensado para **un solo usuario** en un VPS de Oracle,
+detrás de **Nginx Proxy Manager** y **Cloudflare**.
+
+# lista de features
 - feature 1: sistema de espaciado
 * La unidad de espaciado equivale a 10 minutos, se abrevia como UE (1 UE = 600 segundos).
 Este sistema es el que define:
@@ -128,9 +132,7 @@ func eliminar_nodo(nodo_id):
 
 # caso de uso 1 "USANDO MYLERN"
 
-## lista de procedimientos
-
-### procedimiento 1 "registrando un nodo"
+## procedimiento "registrando un nodo"
 paso 1 "recepcionando un nodo":
 - El webhook del servicio de workflows recepciona el mensaje de Telegram del usuario.
 - Si el mensaje no contiene comandos de control, se enruta al parser de creacion de nodos.
@@ -162,12 +164,6 @@ paso 2 "operacion guiada via API":
 - La CLI se comunica via HTTPS contra el backend centralizado autenticandose por API Token.
 - Permite operaciones estructuradas de alta velocidad: insercion masiva, consulta de nodos y reparacion de enlaces, con comando `undo` soportado a nivel log de transacciones.
 
-## lista de contenedores
-- contenedor 01 "servidor backend & api mylern": Servicio de backend que expone API REST/GraphQL, logica de grafos y validaciones.
-- contenedor 02 "workflow n8n mylern": Motor de integracion para webhooks de Telegram y triggers cronometrados.
-- contenedor 03 "base de datos postgres mylern": Motor relacional transaccional con soporte CTE y constraints.
-- contenedor 04 "web app mylern": Servidor de frontend SPA/SSR con cliente web de administracion visual.
-
 # caso de uso 2 "EVALUANDO APRENDIZAJE"
 ## procedimiento "tomando evaluacion directa"
 paso 1 "generacion de evaluacion fin de semana":
@@ -178,13 +174,6 @@ paso 2 "ejecucion y autoevaluacion":
 - Completa las respuestas y registra su autocalificacion (acierto/fallo).
 - El sistema almacena la metrica historica de retencion y ajusta el scheduling de los nodos fallidos si es necesario.
 
-## lista de contenedores
-- contenedor 01
-- contenedor 02
-- contenedor 03
-- contenedor 04
-- contenedor 05
-
 # caso de uso 3 "AVANZANDO MILERN"
 ## procedimiento
 paso 1 "registro de oportunidades de mejora":
@@ -194,8 +183,8 @@ paso 2 "analisis y consolidacion de soluciones":
 paso 3 "seguimiento y resolucion":
 - Las soluciones se gestionan bajo un ciclo de vida (*Backlog*, *En Progreso*, *Completado*) reflejando las evoluciones del sistema.
 
-## lista de contenedores
-- contenedor 01
-- contenedor 03
-- contenedor 04
-- contenedor 05
+# lista de contenedores
+- contenedor 01 "servidor backend & api mylern": Servicio de backend que expone API REST/GraphQL, logica de grafos y validaciones.
+- contenedor 02 "workflow n8n mylern": Motor de integracion para webhooks de Telegram y triggers cronometrados.
+- contenedor 03 "base de datos postgres mylern": Motor relacional transaccional con soporte CTE y constraints.
+- contenedor 04 "web app mylern": Servidor de frontend SPA/SSR con cliente web de administracion visual.
