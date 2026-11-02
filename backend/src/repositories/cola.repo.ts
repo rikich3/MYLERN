@@ -156,3 +156,23 @@ export async function purgar(ej: Ejecutor, dias = 30): Promise<number> {
   );
   return r.rowCount ?? 0;
 }
+
+/**
+ * Descarta los esfuerzos aun pendientes de un grafo y de sus nodos, para que un
+ * grafo eliminado no siga enviando mensajes. Los items `en_proceso` se dejan
+ * terminar: el worker ya los tomo.
+ */
+export async function descartarPendientesDeGrafo(
+  ej: Ejecutor,
+  grafoId: string,
+  nodoIds: readonly string[],
+): Promise<number> {
+  const r = await ej.query(
+    `UPDATE effort_dispatch_queue
+        SET estado = 'descartado'
+      WHERE estado = 'pendiente'
+        AND (grafo_id = $1 OR nodo_id = ANY($2::uuid[]))`,
+    [grafoId, nodoIds],
+  );
+  return r.rowCount ?? 0;
+}

@@ -398,13 +398,13 @@ paso 3 "seguimiento y resolucion":
 
 | índice | ubicación | artefacto |
 |---|---|---|
-| T-004.1 | `backend/src/services/grafos.service.ts:55` | `insertarNodo()`: transcripción del pseudocódigo, dentro de una transacción |
+| T-004.1 | `backend/src/services/grafos.service.ts:84` | `insertarNodo()`: transcripción del pseudocódigo, dentro de una transacción |
 | T-004.2 | `backend/src/repositories/nodos.repo.ts:20` | `crear()`: `crear_registro_nodo` con `is_leaf = TRUE` |
 | T-004.3 | `backend/src/repositories/nodos.repo.ts:218` | `marcarIsLeaf()`: `actualizar_nodo(parent_id, is_leaf = falso)` |
 | T-004.4 | `deploy/postgres/init/002_funciones_triggers.sql:121` | `fn_sync_is_leaf()` + `tg_nodos_is_leaf`: mantiene el flag también ante escrituras directas |
 | T-004.5 | `deploy/postgres/init/002_funciones_triggers.sql:51` | `fn_validar_aciclicidad()`: implementa `validar_existencia_y_grafo` en la base |
-| T-004.6 | `backend/src/routes/grafos.routes.ts:27` | `POST /api/v1/grafos/:id/nodos`: superficie REST de la operación |
-| T-004.7 | `webapp/src/pages/Grafos.tsx:49` | Formulario "Insertar nodo" del lienzo visual |
+| T-004.6 | `backend/src/routes/grafos.routes.ts:33` | `POST /api/v1/grafos/:id/nodos`: superficie REST de la operación |
+| T-004.7 | `webapp/src/pages/Grafos.tsx:72` | Formulario "Insertar nodo" del lienzo visual |
 | T-004.8 | `cli/src/index.ts:157` | Comando `gadd`, con validación del par atómico en cliente |
 | T-004.9 | `backend/src/repositories/auditoria.repo.ts:22` | Registro en `transacciones_log`, que habilita el `undo` del alta |
 | T-004.V1 | `backend/test/integracion.test.ts:152,224` | Pruebas de alta con padre, pérdida de condición de hoja y par atómico |
@@ -432,12 +432,12 @@ paso 3 "seguimiento y resolucion":
 |---|---|---|
 | T-005.1 | `backend/src/domain/aciclicidad.ts:18` | `validarAciclicidad()`: los dos pasos del algoritmo, como función pura |
 | T-005.2 | `backend/src/repositories/nodos.repo.ts:177` | `rutaAncestros()`: `WITH RECURSIVE` ascendente desde el padre propuesto |
-| T-005.3 | `backend/src/services/grafos.service.ts:113` | `reparentear()`: valida dentro de la transacción antes de confirmar |
+| T-005.3 | `backend/src/services/grafos.service.ts:142` | `reparentear()`: valida dentro de la transacción antes de confirmar |
 | T-005.4 | `deploy/postgres/init/002_funciones_triggers.sql:51` | `fn_validar_aciclicidad()`: segunda barrera en la base |
 | T-005.5 | `deploy/postgres/init/002_funciones_triggers.sql:98` | `tg_nodos_aciclicidad`: trigger `BEFORE INSERT OR UPDATE OF parent_id` |
 | T-005.6 | `deploy/postgres/init/001_schema.sql:150` | `CHECK chk_no_autopadre`: rechazo declarativo de la autoreferencia |
 | T-005.7 | `backend/src/db/pool.ts:45` | `enTransaccion()`: garantiza la ejecución transaccional previa al commit |
-| T-005.8 | `backend/src/routes/grafos.routes.ts:39` | `PATCH /api/v1/nodos/:id/padre`: superficie REST del reparenteo |
+| T-005.8 | `backend/src/routes/grafos.routes.ts:45` | `PATCH /api/v1/nodos/:id/padre`: superficie REST del reparenteo |
 | T-005.9 | `cli/src/index.ts:176` | Comando `link` (reparación de enlaces desde la terminal) |
 | T-005.V1 | `backend/test/dominio.test.ts:75,79,84,88` | Pruebas de autoreferencia, ciclo detectado, caso válido y desconexión |
 | T-005.V2 | `backend/test/integracion.test.ts:212` | Prueba del rechazo contra base real |
@@ -463,16 +463,16 @@ paso 3 "seguimiento y resolucion":
 
 | índice | ubicación | artefacto |
 |---|---|---|
-| T-006.1 | `backend/src/services/grafos.service.ts:166` | `eliminarNodo()`: transcripción del pseudocódigo, transaccional |
+| T-006.1 | `backend/src/services/grafos.service.ts:195` | `eliminarNodo()`: transcripción del pseudocódigo, transaccional |
 | T-006.2 | `backend/src/repositories/nodos.repo.ts:207` | `desvincularHijosDirectos()`: anula `parent_id` y `enlace_contenido` de los hijos |
 | T-006.3 | `backend/src/repositories/nodos.repo.ts:193` | `contarHijosActivos()`: cuenta solo descendientes activos |
 | T-006.4 | `backend/src/repositories/nodos.repo.ts:218` | `marcarIsLeaf()`: devuelve al padre la condición de hoja |
 | T-006.5 | `backend/src/repositories/nodos.repo.ts:223` | `marcarBajaLogica()`: archiva sin borrar físicamente |
 | T-006.6 | `deploy/postgres/init/001_schema.sql:124` | Columnas `activo` y `archivado_en`: soporte de la baja lógica |
-| T-006.7 | `backend/src/routes/grafos.routes.ts:49` | `DELETE /api/v1/nodos/:id`: superficie REST |
-| T-006.8 | `webapp/src/pages/Grafos.tsx:90` | Acción "Dar de baja" con confirmación explícita en el lienzo |
+| T-006.7 | `backend/src/routes/grafos.routes.ts:55` | `DELETE /api/v1/nodos/:id`: superficie REST |
+| T-006.8 | `webapp/src/pages/Grafos.tsx:113` | Acción "Dar de baja" con confirmación explícita en el lienzo |
 | T-006.9 | `cli/src/index.ts:194` | Comando `rm`, que informa cuántos hijos quedaron preservados |
-| T-006.10 | `webapp/src/pages/Nodos.tsx:51` | Botón "Eliminar" en la vista de lista de nodos para dar de baja lógica a un nodo |
+| T-006.10 | `webapp/src/pages/Nodos.tsx:79` | Botón "Eliminar" en la vista de lista de nodos para dar de baja lógica a un nodo |
 | T-006.V1 | `backend/test/integracion.test.ts:187` | Prueba de desvinculación de hijos, retorno del padre a hoja y baja lógica |
 
 ---
@@ -497,10 +497,10 @@ paso 3 "seguimiento y resolucion":
 | índice | ubicación | artefacto | ítem |
 |---|---|---|---|
 | T-007.1 | `deploy/postgres/init/001_schema.sql:132` | `CHECK chk_par_atomico`: el constraint literal del protocolo | 1_ |
-| T-007.2 | `backend/src/services/grafos.service.ts:64` | Validación del par atómico en el alta, antes de tocar la base | 1_ |
-| T-007.3 | `backend/src/services/grafos.service.ts:65` | Validación del par atómico en el reparenteo | 1_ |
+| T-007.2 | `backend/src/services/grafos.service.ts:93` | Validación del par atómico en el alta, antes de tocar la base | 1_ |
+| T-007.3 | `backend/src/services/grafos.service.ts:149` | Validación del par atómico en el reparenteo | 1_ |
 | T-007.4 | `backend/src/db/pool.ts:45` | `enTransaccion()`: BEGIN / COMMIT / ROLLBACK alrededor de cada mutación | 2_ |
-| T-007.5 | `backend/src/services/grafos.service.ts:138` | Validación de no-ciclos previa a la confirmación del reparenteo | 2_ |
+| T-007.5 | `backend/src/services/grafos.service.ts:167` | Validación de no-ciclos previa a la confirmación del reparenteo | 2_ |
 | T-007.6 | `deploy/postgres/init/002_funciones_triggers.sql:98` | `tg_nodos_aciclicidad`: barrera de base de datos | 2_ |
 | T-007.7 | `backend/src/repositories/nodos.repo.ts:207` | `desvincularHijosDirectos()`: desvinculación huérfana segura | 3_ |
 | T-007.8 | `deploy/postgres/init/001_schema.sql:122` | FK `parent_id ... ON DELETE SET NULL`: red de seguridad ante borrado físico | 3_ |
@@ -585,7 +585,7 @@ artefacto asignado.
 | DSC-024 | Comunicación por HTTPS autenticada con API Token | procedimiento "terminal", paso 2 | — | `cli/src/api.ts:39`; `backend/src/middleware/auth.ts:24`; `backend/src/services/auth.service.ts:58` |
 | DSC-025 | Inserción masiva, consulta de nodos y reparación de enlaces | procedimiento "terminal", paso 2 | — | `cli/src/index.ts:87` `import`; `cli/src/index.ts:176` `link`; `backend/src/routes/nodos.routes.ts:47` lote |
 | DSC-026 | Comando `undo` a nivel log de transacciones | procedimiento "terminal", paso 2 | — | `backend/src/services/undo.service.ts:12`; `deploy/postgres/init/001_schema.sql:289` `transacciones_log` |
-| DSC-027 | Domingo 00:00 UTC: hasta 20 nodos aleatorios de `fase_3` o `fase_4` | caso de uso 2, paso 1 | `MOD-2` | `space_repetition/04_evaluacion_dominical.json`; `backend/src/repositories/nodos.repo.ts:267` |
+| DSC-027 | Domingo 00:00 UTC: hasta 20 nodos aleatorios de `fase_3` o `fase_4` | caso de uso 2, paso 1 | `MOD-2` | `space_repetition/04_evaluacion_dominical.json`; `backend/src/repositories/nodos.repo.ts:298` |
 | DSC-028 | Cuestionario con `nodo_esfuerzo` como premisa contra `nodo_crudo` y enlaces jerárquicos | caso de uso 2, paso 1 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:19` `generarSemanal()` |
 | DSC-029 | Ejecución en la web o descarga del formato offline | caso de uso 2, paso 2 | `MOD-2`, `F2.5` | `backend/src/services/evaluaciones.service.ts:139` `exportarTexto()`; `webapp/src/pages/Evaluaciones.tsx:70` |
 | DSC-030 | Autocalificación acierto/fallo | caso de uso 2, paso 2 | `MOD-2` | `backend/src/services/evaluaciones.service.ts:92` `calificar()` |
@@ -598,7 +598,9 @@ artefacto asignado.
 | DSC-037 | Contenedor 03 — PostgreSQL con soporte CTE y constraints | lista de contenedores | — | `deploy/postgres/init/`; `deploy/docker-compose.yml` servicio `postgres` |
 | DSC-038 | Contenedor 04 — web app SPA de administración visual | lista de contenedores | — | `webapp/`; `deploy/webapp/Dockerfile` |
 | DSC-039 | Contenedor 05 — reverse proxy TLS que aísla la red interna | lista de contenedores | — | `deploy/nginx/`; `deploy/docker-compose.yml` servicio `proxy` |
-| DSC-040 | Vista de nodos con índice global dinámico en vivo, detalles de índice siguiente esfuerzo con hora equivalente America/Lima y botón de eliminación | procedimiento "app web", paso 2 | `F2.5`, `F1.2` | `webapp/src/pages/Nodos.tsx:16` |
+| DSC-040 | Vista de nodos con índice global dinámico en vivo, detalles de índice siguiente esfuerzo con hora equivalente America/Lima y botón de eliminación | procedimiento "app web", paso 2 | `F2.5`, `F1.2` | `webapp/src/pages/Nodos.tsx:17` |
+| DSC-041 | Eliminación de un grafo: baja lógica del grafo y de sus nodos activos, descarte de sus esfuerzos pendientes, reversible con `undo` | procedimiento "app web", paso 2 | `F2.3`, `F2.5` | `backend/src/routes/grafos.routes.ts:27` `DELETE /api/v1/grafos/:id`; `backend/src/services/grafos.service.ts:50` `eliminarGrafo()`; `backend/src/repositories/nodos.repo.ts:277` `archivarNodosDeGrafo()`; `backend/src/repositories/cola.repo.ts:165` `descartarPendientesDeGrafo()`; `backend/src/services/undo.service.ts:72`; `webapp/src/pages/Grafos.tsx:53` botón "Eliminar grafo" |
+| DSC-042 | Edición del contenido de un nodo (esfuerzo, contenido crudo y enlace con el padre) desde el lienzo y desde la lista de nodos | procedimiento "app web", paso 2 | `F1.1`, `F2.5` | `webapp/src/components/EditorNodo.tsx:18`; `webapp/src/pages/Grafos.tsx:199`; `webapp/src/pages/Nodos.tsx:186`; `backend/src/routes/nodos.routes.ts:65` `PATCH /api/v1/nodos/:id`; `backend/src/repositories/nodos.repo.ts:254` `actualizarContenido()` |
 
 ## Decisiones de diseño asociadas
 
@@ -619,7 +621,7 @@ resueltas y justificadas en [`docs/decisiones.md`](docs/decisiones.md):
 | DEC-010 `contenido` y `es_temporal` derivados | ESP-002, DSC-004 |
 | DEC-011 `is_leaf` por trigger y CTE recursiva | ESP-002, DSC-009, DSC-010 |
 | DEC-012 vinculación cuenta web ↔ chat de Telegram | DSC-013 |
-| DEC-013 alcance del comando `undo` | DSC-026 |
+| DEC-013 alcance del comando `undo` | DSC-026, DSC-041 |
 | DEC-014 autenticación y aislamiento de la superficie interna | DSC-024, DSC-039 |
 | DEC-015 ausencia de GraphQL | DSC-035 |
 | DEC-016 desplazamiento aplicado en bucle | ESP-008 |
@@ -627,3 +629,4 @@ resueltas y justificadas en [`docs/decisiones.md`](docs/decisiones.md):
 | DEC-018 el archivado sigue durante el silencio | ESP-008, DSC-004 |
 | DEC-019 la ventana es hora local | ESP-008 |
 | DEC-020 superficie de seguridad reducida | DSC-024, DSC-035, DSC-039 |
+| DEC-021 eliminar un grafo archiva también sus nodos | DSC-041 |

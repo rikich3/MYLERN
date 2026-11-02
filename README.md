@@ -70,6 +70,12 @@ conocimiento** y deja de agendar por su cuenta: a partir de ahí es el grafo el
 que emite esfuerzos, rotando por sus nodos hoja en Round Robin y componiendo el
 texto como `padre + enlace + contenido`.
 
+Desde la app web se puede **editar el contenido** de un nodo (esfuerzo,
+contenido crudo y, dentro de un grafo, el enlace con su padre) y **eliminar un
+grafo** completo. Eliminar un grafo es una baja lógica que archiva también sus
+nodos y descarta sus esfuerzos pendientes; se revierte con `undo` (ver
+[DEC-021](docs/decisiones.md)).
+
 Un nodo registrado con fecha límite es **temporal**: no entra al grafo y sigue
 emitiendo cada 54–66 UE hasta archivarse.
 

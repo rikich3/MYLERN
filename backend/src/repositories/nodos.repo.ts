@@ -246,20 +246,51 @@ export async function reparentear(
   return row!;
 }
 
+/**
+ * Actualiza el contenido del nodo. Un campo ausente se conserva; `nodo_crudo`
+ * presente con valor `null` (o vacio) se limpia, de modo que `contenido` vuelve
+ * a derivarse de `nodo_esfuerzo`.
+ */
 export async function actualizarContenido(
   ej: Ejecutor,
   id: string,
   campos: { nodo_esfuerzo?: string; nodo_crudo?: string | null; grafo_id?: string | null },
 ): Promise<Nodo | null> {
+  const tocaCrudo = campos.nodo_crudo !== undefined;
+  const crudo = campos.nodo_crudo?.trim() ? campos.nodo_crudo : null;
   return uno<Nodo>(
     ej,
     `UPDATE nodos
         SET nodo_esfuerzo = COALESCE($2, nodo_esfuerzo),
-            nodo_crudo    = COALESCE($3, nodo_crudo),
+            nodo_crudo    = CASE WHEN $5::boolean THEN $3 ELSE nodo_crudo END,
             grafo_id      = COALESCE($4::uuid, grafo_id)
       WHERE id = $1 AND activo
       RETURNING ${COLS}`,
-    [id, campos.nodo_esfuerzo ?? null, campos.nodo_crudo ?? null, campos.grafo_id ?? null],
+    [id, campos.nodo_esfuerzo ?? null, crudo, campos.grafo_id ?? null, tocaCrudo],
+  );
+}
+
+/**
+ * Baja logica de todos los nodos activos de un grafo. Devuelve el estado previo
+ * de cada uno para que la operacion sea reversible con `undo`.
+ */
+export async function archivarNodosDeGrafo(
+  ej: Ejecutor,
+  grafoId: string,
+): Promise<Array<{ id: string; fase: Fase; parent_id: string | null; enlace_contenido: string | null }>> {
+  return consulta(
+    ej,
+    `WITH previo AS (
+        SELECT id, fase, parent_id, enlace_contenido
+          FROM nodos WHERE grafo_id = $1 AND activo FOR UPDATE
+     )
+     UPDATE nodos n
+        SET activo = FALSE, fase = 'archivado', archivado_en = now(),
+            parent_id = NULL, enlace_contenido = NULL
+       FROM previo p
+      WHERE n.id = p.id
+      RETURNING p.id, p.fase, p.parent_id, p.enlace_contenido`,
+    [grafoId],
   );
 }
 

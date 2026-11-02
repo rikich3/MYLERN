@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Nodo, type Fase, ErrorApi } from '../lib/api';
 import { Aviso } from '../components/Aviso';
 import { Revelable } from '../components/Revelable';
+import { EditorNodo } from '../components/EditorNodo';
 
 const ETIQUETA_FASE: Record<Fase, string> = {
   fase_1: '1 · ~24 h',
@@ -38,6 +39,7 @@ export function Nodos() {
   const [filtroFase, setFiltroFase] = useState<Fase | ''>('');
   const [mostrarDetalles, setMostrarDetalles] = useState(false);
   const [detallesExpandidos, setDetallesExpandidos] = useState<Record<string, boolean>>({});
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ tipo: 'error' | 'ok'; texto: string } | null>(null);
 
   useEffect(() => {
@@ -152,8 +154,24 @@ export function Nodos() {
             <li key={n.id} className="tarjeta nodo-tarjeta">
               <div className="nodo-fila">
                 <div className="nodo-fila-texto">
-                  <strong>{n.nodo_esfuerzo}</strong>
-                  {n.nodo_crudo && <p className="tenue">{n.nodo_crudo}</p>}
+                  {editandoId === n.id ? (
+                    <EditorNodo nodo={n}
+                                onCancelar={() => setEditandoId(null)}
+                                onError={(err) => setAviso({
+                                  tipo: 'error',
+                                  texto: err instanceof Error ? err.message : 'Error al editar nodo',
+                                })}
+                                onGuardado={async () => {
+                                  setEditandoId(null);
+                                  setAviso({ tipo: 'ok', texto: 'Nodo actualizado.' });
+                                  await recargar();
+                                }} />
+                  ) : (
+                    <>
+                      <strong>{n.nodo_esfuerzo}</strong>
+                      {n.nodo_crudo && <p className="tenue">{n.nodo_crudo}</p>}
+                    </>
+                  )}
                 </div>
                 <div className="nodo-fila-meta">
                   <span className={`pastilla ${n.fase}`}>{ETIQUETA_FASE[n.fase]}</span>
@@ -164,6 +182,9 @@ export function Nodos() {
                   </div>
                   <button type="button" onClick={() => toggleDetalleNodo(n.id)}>
                     {verDetalle ? 'Ocultar' : 'Detalles'}
+                  </button>
+                  <button type="button" onClick={() => setEditandoId(n.id)} disabled={editandoId === n.id}>
+                    Editar
                   </button>
                   <button type="button" className="peligro" onClick={() => eliminarNodo(n.id)} title="Dar de baja el nodo">
                     Eliminar

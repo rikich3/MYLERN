@@ -3,6 +3,7 @@ import { api, type Grafo, type Nodo, ErrorApi } from '../lib/api';
 import { Lienzo } from '../components/Lienzo';
 import { Aviso } from '../components/Aviso';
 import { Revelable } from '../components/Revelable';
+import { EditorNodo } from '../components/EditorNodo';
 
 /** [feature 2.5] Creacion, enlace, navegacion visual y evaluacion del grafo. */
 export function Grafos() {
@@ -16,6 +17,7 @@ export function Grafos() {
   const [contenido, setContenido] = useState('');
   const [enlace, setEnlace] = useState('');
   const [comoHijo, setComoHijo] = useState(true);
+  const [editando, setEditando] = useState(false);
 
   const cargarGrafos = useCallback(async () => {
     const r = await api<{ grafos: Grafo[] }>('GET', '/api/v1/grafos');
@@ -32,7 +34,9 @@ export function Grafos() {
   useEffect(() => { if (activo) void cargarNodos(activo).catch(() => undefined); }, [activo, cargarNodos]);
 
   const fallar = (e: unknown) =>
-    setAviso({ tipo: 'error', texto: e instanceof ErrorApi ? e.message : 'Error inesperado' });
+    setAviso({ tipo: 'error', texto: e instanceof ErrorApi || e instanceof Error ? e.message : 'Error inesperado' });
+
+  const seleccionar = (id: string | null) => { setSeleccionado(id); setEditando(false); };
 
   async function crearGrafo(e: React.FormEvent) {
     e.preventDefault();
@@ -42,6 +46,25 @@ export function Grafos() {
       await cargarGrafos();
       setActivo(g.id);
       setAviso({ tipo: 'ok', texto: `Grafo "${g.nombre}" creado.` });
+    } catch (e) { fallar(e); }
+  }
+
+  /** Baja logica del grafo y de todos sus nodos; reversible con `undo`. */
+  async function eliminarGrafo() {
+    const g = grafos.find((x) => x.id === activo);
+    if (!g) return;
+    const total = g.total_nodos ?? 0;
+    const pregunta = total > 0
+      ? `Eliminar el grafo "${g.nombre}" y sus ${total} nodos? Dejaran de enviarse sus esfuerzos.`
+      : `Eliminar el grafo "${g.nombre}"?`;
+    if (!window.confirm(pregunta)) return;
+    try {
+      const r = await api<{ nodos_archivados: number }>('DELETE', `/api/v1/grafos/${g.id}`);
+      seleccionar(null);
+      setNodos([]);
+      setActivo(null);
+      await cargarGrafos();
+      setAviso({ tipo: 'ok', texto: `Grafo "${g.nombre}" eliminado; ${r.nodos_archivados} nodos archivados.` });
     } catch (e) { fallar(e); }
   }
 
@@ -92,7 +115,7 @@ export function Grafos() {
     if (!window.confirm('Dar de baja el nodo? Sus hijos quedaran como raices del grafo.')) return;
     try {
       const r = await api<{ hijos_desvinculados: string[] }>('DELETE', `/api/v1/nodos/${seleccionado}`);
-      setSeleccionado(null);
+      seleccionar(null);
       if (activo) await cargarNodos(activo);
       setAviso({ tipo: 'ok', texto: `Nodo archivado; ${r.hijos_desvinculados.length} hijos preservados.` });
     } catch (e) { fallar(e); }
@@ -105,12 +128,18 @@ export function Grafos() {
     <div className="pagina pagina-grafos">
       <header className="pagina-cabecera">
         <h2>Grafos de conocimiento</h2>
-        <select value={activo ?? ''} onChange={(e) => { setActivo(e.target.value); setSeleccionado(null); }}>
+        <select value={activo ?? ''} onChange={(e) => { setActivo(e.target.value); seleccionar(null); }}>
           {grafos.map((g) => (
             <option key={g.id} value={g.id}>{g.nombre} ({g.total_nodos ?? 0})</option>
           ))}
           {grafos.length === 0 && <option value="">— sin grafos —</option>}
         </select>
+        {grafoSel && (
+          <button type="button" className="peligro" onClick={eliminarGrafo}
+                  title="Archivar el grafo y todos sus nodos">
+            Eliminar grafo
+          </button>
+        )}
       </header>
 
       {aviso && <Aviso tipo={aviso.tipo} texto={aviso.texto} onCerrar={() => setAviso(null)} />}
@@ -119,7 +148,7 @@ export function Grafos() {
         <div className="grafos-lienzo">
           {activo
             ? <Lienzo nodos={nodos} seleccionado={seleccionado}
-                      onSeleccionar={setSeleccionado} onEnlazar={enlazar} />
+                      onSeleccionar={seleccionar} onEnlazar={enlazar} />
             : <p className="vacio">Crea un grafo para empezar.</p>}
         </div>
 
@@ -152,7 +181,25 @@ export function Grafos() {
           {nodoSel && (
             <div className="tarjeta">
               <h3>Nodo seleccionado</h3>
-              <p><strong>{nodoSel.contenido}</strong></p>
+              {editando ? (
+                <EditorNodo key={nodoSel.id} nodo={nodoSel} conEnlace onError={fallar}
+                            onCancelar={() => setEditando(false)}
+                            onGuardado={async () => {
+                              setEditando(false);
+                              if (activo) await cargarNodos(activo);
+                              setAviso({ tipo: 'ok', texto: 'Nodo actualizado.' });
+                            }} />
+              ) : (
+                <>
+                  <p><strong>{nodoSel.nodo_esfuerzo}</strong></p>
+                  {nodoSel.nodo_crudo && nodoSel.nodo_crudo !== nodoSel.nodo_esfuerzo && (
+                    <p className="tenue">{nodoSel.nodo_crudo}</p>
+                  )}
+                  <div className="acciones">
+                    <button type="button" onClick={() => setEditando(true)}>Editar contenido</button>
+                  </div>
+                </>
+              )}
               <dl className="detalle">
                 <dt>etapa</dt><dd>{nodoSel.fase}</dd>
                 <dt>hoja</dt><dd>{nodoSel.is_leaf ? 'si' : 'no'}</dd>

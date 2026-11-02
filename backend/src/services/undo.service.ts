@@ -69,6 +69,29 @@ export async function deshacerUltima(usuarioId: string) {
         detalle = `Grafo ${tx.entidad_id} archivado.`;
         break;
       }
+      case 'grafo:eliminar': {
+        const nodos = (anterior?.nodos as Array<{
+          id: string; fase: string; parent_id: string | null; enlace_contenido: string | null;
+        }>) ?? [];
+        await cx.query('UPDATE grafos SET activo = TRUE, archivado_en = NULL WHERE id = $1', [tx.entidad_id]);
+        // Primero se reactivan todos los nodos sin padre y luego se restituyen los
+        // enlaces: el trigger de aciclicidad exige que el padre ya este activo.
+        for (const n of nodos) {
+          await cx.query(
+            'UPDATE nodos SET activo = TRUE, archivado_en = NULL, fase = $2 WHERE id = $1',
+            [n.id, n.fase],
+          );
+        }
+        for (const n of nodos) {
+          if (n.parent_id === null) continue;
+          await cx.query(
+            'UPDATE nodos SET parent_id = $2, enlace_contenido = $3 WHERE id = $1',
+            [n.id, n.parent_id, n.enlace_contenido],
+          );
+        }
+        detalle = `Grafo ${tx.entidad_id} restaurado con ${nodos.length} nodos.`;
+        break;
+      }
       default:
         throw new ErrorDominio(
           'UNDO_NO_SOPORTADO',

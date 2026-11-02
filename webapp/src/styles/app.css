@@ -192,3 +192,6 @@ dl.detalle dd { margin: 0; }
   .grafos-cuerpo, .evaluaciones-cuerpo, .mejoras-cuerpo, .tablero { grid-template-columns: 1fr; }
   .pagina-grafos { height: auto; }
 }
+
+/* --- edicion de nodos ---------------------------------------------------- */
+.editor-nodo { display: flex; flex-direction: column; gap: 8px; width: 100%; }

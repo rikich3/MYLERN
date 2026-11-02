@@ -23,6 +23,12 @@ export async function rutasGrafos(app: FastifyInstance): Promise<void> {
     return grafosService.detalleGrafo(usuarioDe(req), id);
   });
 
+  /** Baja logica del grafo y de sus nodos; reversible con `undo`. */
+  app.delete('/api/v1/grafos/:id', async (req) => {
+    const { id } = uuid.parse(req.params);
+    return grafosService.eliminarGrafo(usuarioDe(req), id, 'web');
+  });
+
   /** [PSC-INS-NODO] insertar_nodo(grafo_id, contenido, parent_id?, enlace_contenido?) */
   app.post('/api/v1/grafos/:id/nodos', async (req, res) => {
     const { id } = uuid.parse(req.params);

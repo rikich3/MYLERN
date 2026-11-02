@@ -293,7 +293,9 @@ transacciones"*. No enumera qué operaciones son reversibles.
 **Decisión.** `transacciones_log` guarda el estado anterior y posterior de cada
 mutación. `undo` revierte la última operación no deshecha del usuario y cubre:
 alta de nodo, alta por lote, reparenteo, actualización de contenido,
-eliminación, integración a grafo y creación de grafo. Una operación no cubierta
+eliminación, integración a grafo, creación de grafo y eliminación de grafo
+(ver DEC-021). Una actualización de contenido restituye también un `nodo_crudo`
+que estaba vacío. Una operación no cubierta
 responde `UNDO_NO_SOPORTADO` en lugar de fallar de forma ambigua.
 
 **Por qué.** El ASI ata el `undo` al log de transacciones, así que el log es la
@@ -457,3 +459,29 @@ publicación de puertos únicamente en `127.0.0.1`.
 
 **Dónde.** `docs/seguridad_removida.md` desarrolla cada punto: de qué protege,
 por qué se retira y cuándo recuperarla.
+
+---
+
+## DEC-021 — Eliminar un grafo archiva también sus nodos
+
+**Contexto.** El ASI define la baja de nodos (`eliminar_nodo`), pero no la de un
+grafo completo. La app web necesita poder eliminar un grafo creado.
+
+**Decisión.** `DELETE /api/v1/grafos/:id` es una baja lógica en una sola
+transacción: archiva el grafo, archiva todos sus nodos activos (desvinculando
+sus enlaces) y descarta los esfuerzos `pendiente` del grafo y de esos nodos en
+`effort_dispatch_queue`. Los `en_proceso` se dejan terminar. El estado previo de
+cada nodo (fase, padre, enlace) queda en `transacciones_log`, y `undo` restaura
+el grafo con su estructura: primero reactiva los nodos y después rehace los
+enlaces, porque el trigger de aciclicidad exige que el padre esté activo.
+
+**Por qué.** Dejar los nodos vivos dentro de un grafo inactivo los dejaría
+huérfanos: un nodo de cuarta etapa no temporal ya no agenda por sí mismo y el
+grafo dejaría de emitir por él, de modo que nunca volvería a aparecer. Moverlos a
+otro grafo sería una decisión implícita sobre el conocimiento del usuario; quien
+quiera conservar un nodo puede integrarlo a otro grafo
+(`POST /api/v1/nodos/:id/integrar`) antes de eliminar.
+
+**Dónde.** `grafos.service.ts` (`eliminarGrafo`), `nodos.repo.ts`
+(`archivarNodosDeGrafo`), `cola.repo.ts` (`descartarPendientesDeGrafo`),
+`undo.service.ts` (`grafo:eliminar`).

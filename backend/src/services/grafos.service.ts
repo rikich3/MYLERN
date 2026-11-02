@@ -2,6 +2,7 @@ import { enTransaccion, pool } from '../db/pool.js';
 import * as nodosRepo from '../repositories/nodos.repo.js';
 import * as grafosRepo from '../repositories/grafos.repo.js';
 import * as auditoria from '../repositories/auditoria.repo.js';
+import * as colaRepo from '../repositories/cola.repo.js';
 import type { OrigenTx } from '../repositories/auditoria.repo.js';
 import { validarAciclicidad } from '../domain/aciclicidad.js';
 import { RANGO_GRAFO } from '../domain/fases.js';
@@ -39,6 +40,34 @@ export async function detalleGrafo(usuarioId: string, grafoId: string) {
   const nodos = await nodosRepo.nodosDeGrafo(pool, grafoId);
   const hojas = await nodosRepo.hojasDeGrafo(pool, grafoId);
   return { grafo, nodos, hojas };
+}
+
+/**
+ * Elimina un grafo de conocimiento: baja logica del grafo y de todos sus nodos
+ * activos, y descarte de los esfuerzos que tuviera pendientes en la cola. Nada
+ * se borra fisicamente; el estado previo queda en el log para `undo`.
+ */
+export async function eliminarGrafo(
+  usuarioId: string,
+  grafoId: string,
+  origen: OrigenTx = 'web',
+): Promise<{ grafo: Grafo; nodos_archivados: number; esfuerzos_descartados: number }> {
+  return enTransaccion(async (cx) => {
+    const grafo = await grafosRepo.obtener(cx, grafoId, usuarioId);
+    if (!grafo || !grafo.activo) throw noEncontrado('Grafo');
+
+    const nodos = await nodosRepo.archivarNodosDeGrafo(cx, grafoId);
+    const descartados = await colaRepo.descartarPendientesDeGrafo(cx, grafoId, nodos.map((n) => n.id));
+    await grafosRepo.archivar(cx, grafoId);
+
+    await auditoria.registrar(cx, {
+      usuario_id: usuarioId, origen, operacion: 'eliminar', entidad: 'grafo',
+      entidad_id: grafoId,
+      payload_anterior: { grafo, nodos },
+      payload_nuevo: { activo: false, nodos_archivados: nodos.length, esfuerzos_descartados: descartados },
+    });
+    return { grafo: { ...grafo, activo: false }, nodos_archivados: nodos.length, esfuerzos_descartados: descartados };
+  });
 }
 
 /**
