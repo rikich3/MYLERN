@@ -141,7 +141,7 @@ marcha** para poder ejecutarse:
 |---|---|---|
 | `backend/test/dominio.test.ts` | 23 pruebas: `generar_esfuerzo`, umbrales de etapa, aciclicidad, parser, tiempo global | no |
 | `backend/test/silencio.test.ts` | 13 pruebas: fronteras de la ventana, hora local, desplazamiento de 54 UE | no |
-| `backend/test/integracion.test.ts` | 13 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, evaluación, `undo`, caudal | **sí** |
+| `backend/test/integracion.test.ts` | 15 pruebas: ciclo completo de esfuerzos, Round Robin, bajas, eliminación de grafos, edición de contenido, evaluación, `undo`, caudal | **sí** |
 | `backend/test/silencio-tick.test.ts` | 5 pruebas: compuertas del tick y del worker durante el silencio | **sí** |
 
 **Las que no la necesitan** ejercitan funciones puras: entra un valor, sale otro.

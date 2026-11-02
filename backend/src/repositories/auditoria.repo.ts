@@ -50,7 +50,9 @@ export async function ultimaReversible(ej: Ejecutor, usuarioId: string): Promise
             payload_anterior, payload_nuevo, deshecha, creado_en
        FROM transacciones_log
       WHERE usuario_id = $1 AND NOT deshecha AND operacion <> 'undo'
-      ORDER BY id DESC LIMIT 1
+      -- Se califica la columna: sin el prefijo, ORDER BY resolveria al alias de
+      -- salida \`id::text\` y ordenaria alfabeticamente ('99' > '117').
+      ORDER BY transacciones_log.id DESC LIMIT 1
       FOR UPDATE`,
     [usuarioId],
   );
@@ -68,7 +70,7 @@ export async function historial(ej: Ejecutor, usuarioId: string, limite = 50): P
     ej,
     `SELECT id::text, usuario_id, origen, operacion, entidad, entidad_id,
             payload_anterior, payload_nuevo, deshecha, creado_en
-       FROM transacciones_log WHERE usuario_id = $1 ORDER BY id DESC LIMIT $2`,
+       FROM transacciones_log WHERE usuario_id = $1 ORDER BY transacciones_log.id DESC LIMIT $2`,
     [usuarioId, limite],
   );
 }

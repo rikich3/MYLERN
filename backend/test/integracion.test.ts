@@ -23,6 +23,7 @@ import * as telegram from '../src/services/telegram.service.js';
 import * as undoService from '../src/services/undo.service.js';
 import * as nodosRepo from '../src/repositories/nodos.repo.js';
 import * as grafosRepo from '../src/repositories/grafos.repo.js';
+import * as colaRepo from '../src/repositories/cola.repo.js';
 import { indiceGlobal } from '../src/utils/tiempo.js';
 import { env } from '../src/config/env.js';
 import { enHorasDeSilencio } from '../src/domain/silencio.js';
@@ -124,7 +125,7 @@ test('tick -> despacho -> confirmacion incrementa el contador y reagenda', async
   // item directamente de la cola para probar la confirmacion de forma aislada.
   const fila = await pool.query(
     `SELECT id::text FROM effort_dispatch_queue
-      WHERE nodo_id = $1 AND estado IN ('pendiente','en_proceso') ORDER BY id DESC LIMIT 1`,
+      WHERE nodo_id = $1 AND estado IN ('pendiente','en_proceso') ORDER BY effort_dispatch_queue.id DESC LIMIT 1`,
     [nodo.id],
   );
   assert.equal(fila.rowCount, 1);
@@ -170,7 +171,7 @@ test('un nodo no temporal que alcanza fase_4 ingresa a un grafo de conocimiento'
   const tickFase4 = await scheduler.ejecutarTick();
   if (tickFase4.en_silencio) return;   // en silencio no hay nada que confirmar
   const fila = await pool.query(
-    `SELECT id::text FROM effort_dispatch_queue WHERE nodo_id=$1 ORDER BY id DESC LIMIT 1`, [nodo.id]);
+    `SELECT id::text FROM effort_dispatch_queue WHERE nodo_id=$1 ORDER BY effort_dispatch_queue.id DESC LIMIT 1`, [nodo.id]);
   const res = await despacho.confirmarEnvio(fila.rows[0].id, 1);
 
   assert.equal(res.fase_nueva, 'fase_4');
@@ -298,7 +299,7 @@ test('undo revierte la ultima operacion registrada en el log', async () => {
   const previo = await pool.query(
     `SELECT id::text, entidad, operacion FROM transacciones_log
       WHERE usuario_id = $1 AND NOT deshecha AND operacion <> 'undo'
-      ORDER BY id DESC LIMIT 3`, [usuarioId]);
+      ORDER BY transacciones_log.id DESC LIMIT 3`, [usuarioId]);
   assert.equal(previo.rows[0]?.entidad, 'nodo');
   assert.equal(previo.rows[0]?.operacion, 'crear');
 
@@ -331,6 +332,89 @@ test('el caudal de despacho respeta el limite de 1 mensaje por minuto', async ()
     r.motivo === 'espaciado' || r.motivo === 'horas_silencio',
     `motivo inesperado: ${r.motivo}`,
   );
+});
+
+// --- [DEC-021] eliminacion de grafos y edicion de contenido ------------------
+
+test('eliminar un grafo archiva sus nodos, descarta sus esfuerzos y undo lo restaura', async () => {
+  const grafo = await grafosService.crearGrafo(usuarioId, { nombre: 'A eliminar' }, 'web');
+  const raiz = await grafosService.insertarNodo(usuarioId, grafo.id, { contenido: 'raiz' }, 'web');
+  const hijo = await grafosService.insertarNodo(
+    usuarioId, grafo.id, { contenido: 'hijo', parent_id: raiz.id, enlace_contenido: 'deriva en' }, 'web',
+  );
+  // Esfuerzos pendientes del grafo y de uno de sus nodos.
+  const ig = indiceGlobal();
+  const qGrafo = await colaRepo.encolar(pool, {
+    usuario_id: usuarioId, origen: 'grafo', nodo_id: hijo.id, grafo_id: grafo.id,
+    contenido: 'esfuerzo de grafo', indice_global: ig,
+  });
+  const qNodo = await colaRepo.encolar(pool, {
+    usuario_id: usuarioId, origen: 'nodo', nodo_id: raiz.id, grafo_id: null,
+    contenido: 'esfuerzo de nodo', indice_global: ig,
+  });
+
+  const r = await grafosService.eliminarGrafo(usuarioId, grafo.id, 'web');
+  assert.equal(r.nodos_archivados, 2);
+  assert.equal(r.esfuerzos_descartados, 2);
+
+  assert.equal((await grafosRepo.obtener(pool, grafo.id))!.activo, false);
+  const listado = await grafosService.listarGrafos(usuarioId);
+  assert.ok(!listado.some((g) => g.id === grafo.id), 'el grafo eliminado no debe listarse');
+  for (const id of [raiz.id, hijo.id]) {
+    const n = await nodosRepo.obtener(pool, id);
+    assert.equal(n!.activo, false);
+    assert.equal(n!.fase, 'archivado');
+    assert.equal(n!.parent_id, null);
+  }
+  const cola = await pool.query(
+    'SELECT estado FROM effort_dispatch_queue WHERE id = ANY($1::bigint[])', [[qGrafo!.id, qNodo!.id]]);
+  assert.deepEqual(cola.rows.map((x) => x.estado), ['descartado', 'descartado']);
+
+  // Un grafo ya eliminado no se puede eliminar otra vez.
+  await assert.rejects(grafosService.eliminarGrafo(usuarioId, grafo.id, 'web'));
+
+  const u = await undoService.deshacerUltima(usuarioId);
+  assert.equal(`${u.revertida.entidad}:${u.revertida.operacion}`, 'grafo:eliminar');
+  assert.equal((await grafosRepo.obtener(pool, grafo.id))!.activo, true);
+  const raizR = await nodosRepo.obtener(pool, raiz.id);
+  const hijoR = await nodosRepo.obtener(pool, hijo.id);
+  assert.equal(raizR!.activo, true);
+  assert.equal(raizR!.fase, raiz.fase);
+  assert.equal(raizR!.is_leaf, false, 'la raiz vuelve a tener un hijo');
+  assert.equal(hijoR!.activo, true);
+  assert.equal(hijoR!.parent_id, raiz.id);
+  assert.equal(hijoR!.enlace_contenido, 'deriva en');
+  assert.equal(hijoR!.is_leaf, true);
+});
+
+test('editar el contenido de un nodo permite vaciar el reverso y undo lo restituye', async () => {
+  const nodo = await nodosService.registrar(
+    usuarioId, { nodo_esfuerzo: 'frente', nodo_crudo: 'reverso', fecha_limite: null }, 'web',
+  );
+
+  // Un campo ausente se conserva.
+  const a = await nodosService.actualizar(usuarioId, nodo.id, { nodo_esfuerzo: 'frente editado' }, 'web');
+  assert.equal(a.nodo_esfuerzo, 'frente editado');
+  assert.equal(a.nodo_crudo, 'reverso');
+
+  // `nodo_crudo: null` lo limpia y `contenido` vuelve a derivarse del esfuerzo.
+  const b = await nodosService.actualizar(usuarioId, nodo.id, { nodo_crudo: null }, 'web');
+  assert.equal(b.nodo_crudo, null);
+  assert.equal(b.contenido, 'frente editado');
+
+  // undo de la limpieza devuelve el reverso...
+  await undoService.deshacerUltima(usuarioId);
+  assert.equal((await nodosRepo.obtener(pool, nodo.id))!.nodo_crudo, 'reverso');
+
+  // ...y undo de una edicion cuyo estado previo tenia el reverso vacio lo vacia.
+  const sinCrudo = await nodosService.registrar(
+    usuarioId, { nodo_esfuerzo: 'solo frente', nodo_crudo: null, fecha_limite: null }, 'web',
+  );
+  await nodosService.actualizar(usuarioId, sinCrudo.id, { nodo_crudo: 'reverso nuevo' }, 'web');
+  await undoService.deshacerUltima(usuarioId);
+  const c = await nodosRepo.obtener(pool, sinCrudo.id);
+  assert.equal(c!.nodo_crudo, null);
+  assert.equal(c!.contenido, 'solo frente');
 });
 
 // --- [feature 1.3] horas de silencio ----------------------------------------
