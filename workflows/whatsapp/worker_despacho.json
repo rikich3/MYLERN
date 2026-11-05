@@ -1,0 +1,314 @@
+{
+  "name": "whatsapp_worker_despacho",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "09bcee2d-a63a-46ee-801d-6e53d251b7b9",
+      "name": "Cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -920,
+        180
+      ],
+      "notes": "paso 2: '...enviando un maximo de 10 mensajes espaciados uniformemente a razon de 1 mensaje por minuto'."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/siguiente",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "f2314e6d-fbba-44aa-b512-610626486d98",
+      "name": "Reclamar esfuerzo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -700,
+        180
+      ],
+      "notes": "El backend aplica las dos restricciones de caudal (10 por UE y 60 s entre mensajes) y toma el item con FOR UPDATE SKIP LOCKED."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hay-item",
+              "leftValue": "={{ $json.item }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eb212a22-822a-408e-a3eb-6f31e9a4de94",
+      "name": "Hay esfuerzo para enviar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        180
+      ],
+      "notes": "Sin item (silencio, caudal o cola vacia) no se envia. WhatsApp no requiere chat_id de Telegram."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_BASE.replace(/\\/+$/, '') + '/message/sendText/' + encodeURIComponent($env.EVOLUTION_INSTANCE) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: '51991436832', text: $json.item.contenido, linkPreview: false }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "68dbda3c-784f-4f8a-8aff-147fe51a7af7",
+      "name": "Enviar esfuerzo a WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -180,
+        80
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Evolution API v2: POST /message/sendText/{instance}. Texto original sin escape HTML. Sin reintento HTTP automatico: los fallos pasan al backend."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/{{ $('Reclamar esfuerzo').item.json.item.id }}/confirmar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_message_id: null }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "994e9e16-53ed-4eff-be8a-c9e3bbd250d7",
+      "name": "Confirmar recepcion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "notes": "Confirma solo tras respuesta valida de Evolution. El backend incrementa contadores y reagenda. Su contrato solo acepta ID numerico de Telegram: se envia null; key.id de WhatsApp queda en la ejecucion n8n. No reintentar automaticamente: confirmar no es idempotente."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/despacho/{{ $('Reclamar esfuerzo').item.json.item.id }}/fallo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ error: String($json.error?.message ?? $json.error ?? 'fallo de envio en Evolution API v2').slice(0, 4000) }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "e6a5c016-8cb7-491b-8b57-8e394a8e9e76",
+      "name": "Registrar fallo de envio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        160
+      ],
+      "notes": "El item vuelve a 'pendiente' hasta agotar DESPACHO_MAX_INTENTOS; el contador del nodo no se incrementa porque no hubo confirmacion."
+    },
+    {
+      "parameters": {},
+      "id": "cf51140e-5329-4a5d-a6d5-dab3c8a8ea15",
+      "name": "Sin trabajo",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        300
+      ]
+    },
+    {
+      "id": "fadafb92-de2d-44a2-a81e-37ad7eeafc43",
+      "name": "Validar configuracion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -810,
+        180
+      ],
+      "parameters": {
+        "jsCode": "for (const name of ['EVOLUTION_API_BASE', 'EVOLUTION_INSTANCE', 'EVOLUTION_API_KEY']) {\n  if (!$env[name]?.trim()) throw new Error('Falta configurar ' + name);\n}\nif (!/^https?:\\/\\//.test($env.EVOLUTION_API_BASE)) throw new Error('EVOLUTION_API_BASE debe ser una URL HTTP(S)');\nreturn $input.all();"
+      },
+      "notes": "Valida antes de reclamar para no dejar un esfuerzo en_proceso por configuracion ausente."
+    },
+    {
+      "id": "fabb8d46-699b-4f33-958b-ffa853886159",
+      "name": "Validar respuesta Evolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        80
+      ],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (typeof response.key?.id !== 'string' || !response.key.id.trim() || response.key.fromMe !== true || !['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED'].includes(response.status)) {\n  throw new Error('Evolution API v2 no devolvio una confirmacion de envio valida');\n}\nreturn $input.all();"
+      },
+      "notes": "PENDING significa aceptado por Evolution, no leido por el destinatario. Rechaza respuestas vacias o de error antes de avanzar el aprendizaje."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Validar configuracion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reclamar esfuerzo": {
+      "main": [
+        [
+          {
+            "node": "Hay esfuerzo para enviar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay esfuerzo para enviar?": {
+      "main": [
+        [
+          {
+            "node": "Enviar esfuerzo a WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sin trabajo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar configuracion": {
+      "main": [
+        [
+          {
+            "node": "Reclamar esfuerzo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar esfuerzo a WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Validar respuesta Evolution",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar fallo de envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar respuesta Evolution": {
+      "main": [
+        [
+          {
+            "node": "Confirmar recepcion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar fallo de envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

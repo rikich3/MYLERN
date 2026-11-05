@@ -5,13 +5,20 @@ Bloom (2001), implementado según la especificación de [`ASI.md`](ASI.md).
 
 Se compone de tres módulos:
 
-1. **Repetición espaciada** por canal de mensajería (Telegram).
+1. **Repetición espaciada** por canal de mensajería (Telegram o WhatsApp).
 2. **Evaluación** para medir el éxito objetivo.
 3. **Desarrollo del sistema**, para hacerlo avanzar hacia más éxito.
 
 ---
 
 ## Documentación
+
+Para enviar esfuerzos por WhatsApp con Evolution API v2, consulta los
+[flujos y configuración de WhatsApp](workflows/whatsapp/README.md).
+
+La [app móvil Flutter](app/README.md) ofrece una versión simplificada offline:
+nodos locales, esfuerzos diarios por notificación y captura de documentos con
+generación simulada de nodos.
 
 | Documento | Contenido |
 |---|---|
@@ -30,6 +37,7 @@ milern/
 ├── backend/            contenedor 01 — API REST, lógica de grafos y scheduling
 ├── webapp/             contenedor 04 — SPA de administración visual
 ├── cli/                cliente de terminal mylern-cli
+├── app/                app Flutter offline para Android/iOS
 ├── space_repetition/   contenedor 02 — workflows de n8n (JSON)
 ├── deploy/             artefactos de despliegue
 │   ├── docker-compose.yml
