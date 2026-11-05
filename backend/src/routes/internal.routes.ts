@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import * as scheduler from '../services/scheduler.service.js';
 import * as despacho from '../services/despacho.service.js';
+import * as whatsapp from '../services/whatsapp.service.js';
 import * as telegram from '../services/telegram.service.js';
 import * as evaluaciones from '../services/evaluaciones.service.js';
 import { requiereSecretoInterno } from '../middleware/auth.js';
@@ -17,6 +18,11 @@ export async function rutasInternas(app: FastifyInstance): Promise<void> {
   /** [procedimiento 1, paso 1] Webhook de Telegram. */
   app.post('/api/v1/internal/telegram/update', async (req) =>
     telegram.procesarUpdate(req.body as telegram.UpdateTelegram));
+
+  app.post('/api/v1/internal/whatsapp/update', async (req) => {
+    const datos = z.object({ number: z.string(), text: z.string().max(16000) }).parse(req.body);
+    return whatsapp.procesarUpdate(datos);
+  });
 
   /**
    * [LOG-GEN-NODO] + [LOG-GEN-GRAFO] + [procedimiento "recibiendo esfuerzos",

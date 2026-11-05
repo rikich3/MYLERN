@@ -32,7 +32,7 @@ La instancia debe estar conectada a WhatsApp. La clave viaja en la cabecera
 `apikey`; el cuerpo v2 contiene `number`, `text` y `linkPreview`.
 Consulta el [código oficial de Evolution](https://github.com/EvolutionAPI/evolution-api/blob/main/src/api/routes/sendMessage.router.ts).
 
-1. Importa ambos JSON desde el editor de n8n. Se entregan inactivos, sin IDs
+1. Importa los JSON desde el editor de n8n. Se entregan inactivos, sin IDs
    de workflows ni credenciales de la instalación original.
 2. Permite a estos nodos acceder a las variables de entorno según la
    configuración de tu n8n.
@@ -42,8 +42,8 @@ Consulta el [código oficial de Evolution](https://github.com/EvolutionAPI/evolu
    canales, no entrega una copia en cada uno. Este destino fijo recibe todos
    los esfuerzos reclamados, incluso si la base tiene varios usuarios.
 5. Puedes mantener la ingesta de Telegram y las evaluaciones existentes.
-   Estos nuevos flujos cubren el envío de esfuerzos, no comandos entrantes ni
-   avisos de evaluación por WhatsApp.
+   El nuevo `WhatsApp_input.json` recibe comandos y nodos; los avisos de
+   evaluación por WhatsApp no están incluidos.
 
 El script `deploy/scripts/importar_workflows.sh` importa `space_repetition/`;
 no importa automáticamente esta carpeta.
@@ -76,3 +76,39 @@ node --test workflows/whatsapp/workflows.test.mjs
 
 Prueba estructura y rutas del flujo, configuración, payload v2 y aceptación o
 rechazo de respuestas con datos simulados; no envía mensajes reales.
+
+## Hablar con MILERN: prefijo obligatorio
+
+Importa y activa `WhatsApp_input.json` después de actualizar el backend con
+`POST /api/v1/internal/whatsapp/update`. Configura en Evolution API v2 el evento
+`MESSAGES_UPSERT`, con webhook por evento desactivado, apuntando a:
+`https://<n8n>/webhook/milern-whatsapp-ingesta`.
+Asigna al nodo Webhook una credencial **Header Auth** (por ejemplo cabecera
+`x-milern-webhook-secret`) y configura esa misma cabecera y valor en el webhook
+de Evolution. No uses la URL de pruebas de n8n para la instancia activa.
+
+Solo se procesan mensajes entrantes privados del número **51991436832**, de la
+instancia `EVOLUTION_INSTANCE`, cuyo texto comience literalmente con `@milern`.
+Debe seguir un espacio, salto de línea o fin del mensaje. Ejemplos:
+
+```text
+@milern ¿Qué es la recuperación activa? | Recordar sin consultar el material
+@milern /listar
+@milern /stats
+@milern /ayuda
+```
+
+`hola @milern`, ` @milern`, `@MILERN` y `@milernotro` se ignoran sin responder.
+`@milern` solo muestra la ayuda. Se admiten texto simple y texto extendido;
+no se procesan audios, documentos, captions ni mensajes de grupo. Las respuestas
+propias se ignoran para evitar bucles. Los esfuerzos salientes no requieren tag.
+
+El backend vuelve a validar número/prefijo y quita el tag antes de ejecutar la
+misma lógica de comandos de Telegram. Usa la única cuenta activa de MILERN, sin
+modificar su vínculo de Telegram. Si hay varias cuentas activas, no asigna una
+arbitrariamente y responde que no puede resolver la cuenta. Las operaciones se
+registran con origen `n8n`, que ya existe en el esquema.
+
+No se reintenta automáticamente la llamada que crea nodos. Esta entrada no tiene
+deduplicación persistente de eventos: si Evolution reenvía un evento ya
+procesado puede duplicar el registro; revisa la ejecución antes de repetirla.

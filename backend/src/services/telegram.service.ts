@@ -1,3 +1,4 @@
+import type { OrigenTx } from '../repositories/auditoria.repo.js';
 import { pool } from '../db/pool.js';
 import * as usuariosRepo from '../repositories/usuarios.repo.js';
 import * as nodosService from './nodos.service.js';
@@ -52,7 +53,16 @@ const AYUDA = [
  */
 export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaBot> {
   const chatId = String(update.message?.chat?.id ?? '');
-  const texto = (update.message?.text ?? '').trim();
+  return procesarTexto(chatId, update.message?.text ?? '', resolverUsuario, 'telegram');
+}
+
+/** Comandos compartidos por los adaptadores de mensajeria. */
+export async function procesarTexto(
+  chatId: string, entrada: string,
+  resolver: (chatId: string) => Promise<{ id: string } | null>,
+  origen: OrigenTx,
+): Promise<RespuestaBot> {
+  const texto = entrada.trim();
 
   if (chatId === '') {
     return { chat_id: '', texto: 'Update sin chat identificable.', ok: false };
@@ -70,7 +80,7 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
 
     // La resolucion es perezosa a proposito: la ayuda la ve cualquiera, pero un
     // chat solo se adopta cuando hace trabajo real (registrar un nodo, listar).
-    const usuario = await resolverUsuario(chatId);
+    const usuario = await resolver(chatId);
     if (!usuario) {
       return {
         chat_id: chatId,
@@ -86,8 +96,8 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
       case '/stats':      return await stats(chatId, usuario.id);
       case '/grafos':     return await grafos(chatId, usuario.id);
       case '/evaluacion': return await evaluacion(chatId, usuario.id);
-      case '/mejora':     return await mejora(chatId, usuario.id, comando.argumento);
-      default:            return await registrarNodo(chatId, usuario.id, texto);
+      case '/mejora':     return await mejora(chatId, usuario.id, comando.argumento, origen);
+      default:            return await registrarNodo(chatId, usuario.id, texto, origen);
     }
   } catch (e) {
     // "ante discordancia sintactica, se responde con un mensaje explicativo y
@@ -100,9 +110,9 @@ export async function procesarUpdate(update: UpdateTelegram): Promise<RespuestaB
   }
 }
 
-async function registrarNodo(chatId: string, usuarioId: string, texto: string): Promise<RespuestaBot> {
+async function registrarNodo(chatId: string, usuarioId: string, texto: string, origen: OrigenTx): Promise<RespuestaBot> {
   const parseado = parsearNodo(texto);
-  const nodo = await nodosService.registrar(usuarioId, parseado, 'telegram');
+  const nodo = await nodosService.registrar(usuarioId, parseado, origen);
   const faltan = nodo.indice_siguiente_esfuerzo - indiceGlobal();
   const partes = [
     `Nodo registrado (${nodo.es_temporal ? 'temporal' : 'permanente'}).`,
@@ -159,9 +169,9 @@ async function evaluacion(chatId: string, usuarioId: string): Promise<RespuestaB
   };
 }
 
-async function mejora(chatId: string, usuarioId: string, argumento: string): Promise<RespuestaBot> {
+async function mejora(chatId: string, usuarioId: string, argumento: string, origen: OrigenTx): Promise<RespuestaBot> {
   const datos = parsearMejora(argumento);
-  const o = await mejorasService.registrarOportunidad(usuarioId, datos, 'telegram');
+  const o = await mejorasService.registrarOportunidad(usuarioId, datos, origen);
   return { chat_id: chatId, texto: `Oportunidad de mejora registrada (${o.id}).`, ok: true };
 }
 

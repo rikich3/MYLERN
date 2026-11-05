@@ -1,0 +1,160 @@
+{
+  "name": "whatsapp_input",
+  "nodes": [
+    {
+      "id": "8ae528dd-6028-4c67-bcca-a4b2d5204236",
+      "name": "Recibir WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "milern-whatsapp-ingesta",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f5e82869-6e0b-4c2a-9924-e3f3ca0197f4",
+      "notes": "Asignar credencial Header Auth y configurar la misma cabecera en el webhook Evolution."
+    },
+    {
+      "id": "eb63cda0-8790-4d7c-a2d0-f5c35354d278",
+      "name": "Filtrar @milern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? {};\nif (body.event !== 'messages.upsert' || body.instance !== $env.EVOLUTION_INSTANCE) return [];\nconst data = body.data;\nif (!data || data.key?.fromMe !== false) return [];\nconst jid = data.key?.remoteJid;\nif (typeof jid !== 'string' || jid.endsWith('@g.us')) return [];\n// Evolution puede identificar al remitente con LID y dar su telefono en remoteJidAlt.\nconst sender = jid.endsWith('@s.whatsapp.net') ? jid : data.key?.remoteJidAlt;\nif (sender !== '51991436832@s.whatsapp.net') return [];\nconst message = data.message ?? {};\nconst text = message.conversation ?? message.extendedTextMessage?.text;\nif (typeof text !== 'string' || !/^@milern(?:\\s|$)/.test(text)) return [];\n// Se conserva el prefijo para que el backend vuelva a comprobarlo.\nreturn [{json: {number: '51991436832', text}}];"
+      },
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MILERN_API_BASE }}/api/v1/internal/whatsapp/update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.MILERN_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.number, text: $json.text }) }}"
+      },
+      "id": "b83e69bf-b1bf-4d7e-a2ab-54233126375f",
+      "name": "Enrutar al backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "id": "ef686379-2f7c-48af-91ca-b56412d021a7",
+      "name": "Hay respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "return $input.all().filter(item => item.json.ignored === false && typeof item.json.texto === 'string' && item.json.texto.length > 0);"
+      },
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_BASE.replace(/\\/+$/, '') + '/message/sendText/' + encodeURIComponent($env.EVOLUTION_INSTANCE) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.number, text: $json.texto, linkPreview: false }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "be578dee-0644-42a0-9c78-e0a95d84936c",
+      "name": "Responder por WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Recibir WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Filtrar @milern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar @milern": {
+      "main": [
+        [
+          {
+            "node": "Enrutar al backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar al backend": {
+      "main": [
+        [
+          {
+            "node": "Hay respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay respuesta": {
+      "main": [
+        [
+          {
+            "node": "Responder por WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
